@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -27,8 +28,13 @@ func TestPlatformAPIProcess(t *testing.T) {
 	waitForLivez(t, first, address)
 
 	second := startPlatformAPI(t, binary, address)
-	if err := waitForProcess(second, processStartupTimeout); err == nil {
+	err := waitForProcess(second, processStartupTimeout)
+	if err == nil {
 		t.Fatal("second process started on an occupied address")
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("second process exit error = %T %[1]v, want *exec.ExitError", err)
 	}
 
 	assertStopsAfterSignal(t, first, syscall.SIGTERM)
@@ -49,6 +55,12 @@ func buildPlatformAPI(t *testing.T) string {
 	return binary
 }
 
+type platformProcess struct {
+	command *exec.Cmd
+	output  *bytes.Buffer
+	done    chan error
+}
+
 func unusedAddress(t *testing.T) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -62,7 +74,7 @@ func unusedAddress(t *testing.T) string {
 	return address
 }
 
-func startPlatformAPI(t *testing.T, binary, address string) *exec.Cmd {
+func startPlatformAPI(t *testing.T, binary, address string) *platformProcess {
 	t.Helper()
 	command := exec.Command(binary, "serve")
 	command.Env = append(command.Environ(), "PLATFORM_API_ADDR="+address)
@@ -72,20 +84,35 @@ func startPlatformAPI(t *testing.T, binary, address string) *exec.Cmd {
 	if err := command.Start(); err != nil {
 		t.Fatalf("start platform-api: %v", err)
 	}
+	process := &platformProcess{
+		command: command,
+		output:  &output,
+		done:    make(chan error, 1),
+	}
+	go func() {
+		process.done <- command.Wait()
+	}()
 	t.Cleanup(func() {
 		if command.ProcessState == nil || !command.ProcessState.Exited() {
 			_ = command.Process.Kill()
-			_ = command.Wait()
+			if err := waitForProcess(process, processStartupTimeout); err != nil {
+				t.Logf("cleanup wait for platform-api: %v\n%s", err, output.String())
+			}
 		}
 	})
-	return command
+	return process
 }
 
-func waitForLivez(t *testing.T, process *exec.Cmd, address string) {
+func waitForLivez(t *testing.T, process *platformProcess, address string) {
 	t.Helper()
 	deadline := time.Now().Add(processStartupTimeout)
 	client := &http.Client{Timeout: processRequestTimeout}
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-process.done:
+			t.Fatalf("platform-api exited before /livez became available: %v\n%s", err, process.output.String())
+		default:
+		}
 		response, err := client.Get("http://" + address + "/livez")
 		if err == nil {
 			_ = response.Body.Close()
@@ -93,18 +120,15 @@ func waitForLivez(t *testing.T, process *exec.Cmd, address string) {
 				return
 			}
 		}
-		if process.ProcessState != nil && process.ProcessState.Exited() {
-			t.Fatalf("platform-api exited before /livez became available")
-		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	t.Fatalf("/livez did not become available within %s", processStartupTimeout)
+	t.Fatalf("/livez did not become available within %s\n%s", processStartupTimeout, process.output.String())
 }
 
-func assertStopsAfterSignal(t *testing.T, process *exec.Cmd, signal syscall.Signal) {
+func assertStopsAfterSignal(t *testing.T, process *platformProcess, signal syscall.Signal) {
 	t.Helper()
 	shutdownStarted := time.Now()
-	if err := process.Process.Signal(signal); err != nil {
+	if err := process.command.Process.Signal(signal); err != nil {
 		t.Fatalf("send %s: %v", signal, err)
 	}
 	if err := waitForProcess(process, runtime.DefaultConfig().ShutdownTimeout); err != nil {
@@ -115,11 +139,9 @@ func assertStopsAfterSignal(t *testing.T, process *exec.Cmd, signal syscall.Sign
 	}
 }
 
-func waitForProcess(command *exec.Cmd, timeout time.Duration) error {
-	done := make(chan error, 1)
-	go func() { done <- command.Wait() }()
+func waitForProcess(process *platformProcess, timeout time.Duration) error {
 	select {
-	case err := <-done:
+	case err := <-process.done:
 		return err
 	case <-time.After(timeout):
 		return fmt.Errorf("process did not exit within %s", timeout)

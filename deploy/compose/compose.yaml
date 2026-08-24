@@ -1,8 +1,8 @@
 services:
   platform-api:
-    image: golang:1.26.3
+    image: golang:1.26.7
     working_dir: /workspace
-    command: go run ./cmd/platform-api
+    command: go run ./cmd/platform-api serve
     environment:
       PLATFORM_API_ADDR: :8080
       PLATFORM_POSTGRES_HOST: postgres
