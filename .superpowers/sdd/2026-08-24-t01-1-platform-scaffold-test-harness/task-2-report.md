@@ -585,3 +585,30 @@ services:
 ### Final Fix Concerns
 
 - I did not rerun `docker compose up -d --wait` in this pass. The whole-branch review marked runtime bring-up optional if image pulls blocked, and the last observed blocker remained long-running image acquisition rather than a new config/runtime error in this code wave.
+
+## Follow-up Fix: PostgreSQL Keycloak Bootstrap
+
+### Root-cause reproduction (red)
+
+The existing script was run against a fresh PostgreSQL 17 container with the required environment variables. It exited with status `3` and PostgreSQL reported:
+
+```text
+ERROR:  syntax error at or near ":"
+LINE 3: ...OT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'keycloak...
+```
+
+No `keycloak` role or database was created. The cause was `psql` variable references inside a dollar-quoted `DO` body, where client-side substitution does not occur.
+
+### Fix
+
+Replaced the dollar-quoted `DO` block with `SELECT format(...) \\gexec` statements. `psql` variables are now substituted outside dollar-quoted text, while `%I` and `%L` preserve identifier and password escaping.
+
+### Green verification
+
+- Fresh PostgreSQL 17 container: first script execution exited `0`.
+- Second execution exited `0` and exercised the existing-role path.
+- Queries confirmed both `keycloak` role and `keycloak` database.
+- A `psql -U keycloak -d keycloak` login succeeded.
+- `sh -n deploy/compose/postgres-init/10-keycloak-db.sh` passed.
+- Full temporary Compose project using cached Keycloak 26.0 and a fresh volume passed `docker compose up -d --wait`; PostgreSQL, Keycloak, and Platform API were healthy, `/livez` returned `{"status":"alive"}`, `/readyz` returned `{"status":"ready"}`, and the bootstrap role/database were present.
+- Exact Compose configuration with Keycloak 26.3 was retried; image acquisition made no progress and was interrupted with exit `130`, so that exact image remains an external environment blocker.
