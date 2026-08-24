@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -23,6 +25,8 @@ const (
 	redactedSummaryText          = "driver summary omitted from evidence"
 	redactedAssertionDetailsText = "assertion details omitted from evidence"
 )
+
+var safeIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 type Driver interface {
 	Execute(context.Context, Scenario) (Report, error)
@@ -46,14 +50,14 @@ func Run(t *testing.T, scenarioPath string) Report {
 
 	scenario, summary, reason := loadScenario(scenarioPath)
 	if reason != "" {
-		report := baseReport(scenarioIDFromPath(scenarioPath), scenario.Seam, startedAt, false, summary, reason)
-		return finalizeReport(report, scenarioPath, scenario)
+		report := baseReport(reportScenarioID(scenarioPath, scenario.ID), scenario.Seam, startedAt, false, summary, reason)
+		return finalizeReport(scenarioPath, report)
 	}
 
 	driver, ok := loadDriver(scenario.Seam)
 	if !ok {
 		report := baseReport(scenario.ID, scenario.Seam, startedAt, false, fmt.Sprintf("scenario rejected: unsupported seam %q", scenario.Seam), "unsupported_seam")
-		return finalizeReport(report, scenarioPath, scenario)
+		return finalizeReport(scenarioPath, report)
 	}
 
 	timeout := defaultTimeout
@@ -61,7 +65,7 @@ func Run(t *testing.T, scenarioPath string) Report {
 		parsed, err := time.ParseDuration(scenario.Timeout)
 		if err != nil {
 			report := baseReport(scenario.ID, scenario.Seam, startedAt, false, "scenario rejected: invalid timeout", "invalid_timeout")
-			return finalizeReport(report, scenarioPath, scenario)
+			return finalizeReport(scenarioPath, report)
 		}
 		timeout = parsed
 	}
@@ -69,46 +73,10 @@ func Run(t *testing.T, scenarioPath string) Report {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	report, err := driver.Execute(ctx, scenario)
-	if err != nil {
-		summary := "scenario execution failed"
-		reason := "driver_error"
-		if errors.Is(err, context.DeadlineExceeded) {
-			summary = "scenario execution timed out"
-			reason = "driver_timeout"
-		}
-		report = baseReport(scenario.ID, scenario.Seam, startedAt, false, summary, reason)
-	}
+	driverReport, err, finishedAt := executeDriver(ctx, driver, scenario)
+	report := buildDriverReport(startedAt, finishedAt, scenario, driverReport, err)
 
-	if report.ScenarioID == "" {
-		report.ScenarioID = scenario.ID
-	}
-	if report.Seam == "" {
-		report.Seam = scenario.Seam
-	}
-	if report.StartedAt == "" {
-		report.StartedAt = startedAt.Format(time.RFC3339Nano)
-	}
-	if report.FinishedAt == "" {
-		report.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	}
-	if report.Duration == "" {
-		finishedAt, parseErr := time.Parse(time.RFC3339Nano, report.FinishedAt)
-		if parseErr == nil {
-			report.Duration = finishedAt.Sub(startedAt).String()
-		}
-	}
-	if report.Dependencies == nil {
-		report.Dependencies = buildDependencies()
-	}
-	if report.Revision == "" {
-		report.Revision = buildRevision()
-	}
-	if report.Summary == "" {
-		report.Summary = "scenario completed"
-	}
-
-	return finalizeReport(report, scenarioPath, scenario)
+	return finalizeReport(scenarioPath, report)
 }
 
 func loadScenario(path string) (Scenario, string, string) {
@@ -124,8 +92,15 @@ func loadScenario(path string) (Scenario, string, string) {
 	if err := decoder.Decode(&scenario); err != nil {
 		return Scenario{}, "scenario rejected: invalid scenario contract", "decode_error"
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return Scenario{}, "scenario rejected: invalid scenario contract", "decode_error"
+	}
 	if strings.TrimSpace(scenario.ID) == "" {
 		return Scenario{}, "scenario rejected: id is required", "missing_id"
+	}
+	if !isSafeIdentifier(scenario.ID) {
+		return scenario, "scenario rejected: id must use only letters, numbers, dot, dash, or underscore", "invalid_id"
 	}
 	if strings.TrimSpace(scenario.Seam) == "" {
 		return scenario, "scenario rejected: seam is required", "missing_seam"
@@ -159,11 +134,7 @@ func baseReport(scenarioID, seam string, startedAt time.Time, passed bool, summa
 	}
 }
 
-func finalizeReport(report Report, scenarioPath string, scenario Scenario) Report {
-	report.Summary = sanitizeSummary(report.Summary)
-	report.Assertions = sanitizeAssertions(report.Assertions)
-	report.Scenario = scenarioEvidenceMetadata(scenario)
-
+func finalizeReport(scenarioPath string, report Report) Report {
 	evidencePath, err := writeReport(scenarioPath, report)
 	if err != nil {
 		report.Passed = false
@@ -184,7 +155,10 @@ func writeReport(scenarioPath string, report Report) (string, error) {
 		scenarioID = scenarioIDFromPath(scenarioPath)
 	}
 
-	dir := filepath.Join(root, "artifacts", "evidence", scenarioID)
+	dir, err := evidenceDirectory(root, scenarioID)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -203,6 +177,56 @@ func writeReport(scenarioPath string, report Report) (string, error) {
 	return path, nil
 }
 
+func buildDriverReport(startedAt, finishedAt time.Time, scenario Scenario, driverReport Report, driverErr error) Report {
+	report := Report{
+		ScenarioID:   scenario.ID,
+		Seam:         scenario.Seam,
+		StartedAt:    startedAt.Format(time.RFC3339Nano),
+		FinishedAt:   finishedAt.Format(time.RFC3339Nano),
+		Duration:     finishedAt.Sub(startedAt).String(),
+		Revision:     buildRevision(),
+		Dependencies: buildDependencies(),
+		Scenario:     scenarioEvidenceMetadata(scenario),
+	}
+
+	if driverErr != nil {
+		report.Passed = false
+		report.Summary = "scenario execution failed"
+		report.FailureReason = "driver_error"
+		if errors.Is(driverErr, context.DeadlineExceeded) {
+			report.Summary = "scenario execution timed out"
+			report.FailureReason = "driver_timeout"
+		}
+		return report
+	}
+
+	assertions, assertionState := reconcileAssertionResults(scenario.Assertions, driverReport.Assertions)
+	if assertionState != assertionResultsValid {
+		report.Passed = false
+		report.Summary = "scenario assertion results invalid"
+		report.FailureReason = "invalid_assertion_results"
+		return report
+	}
+
+	report.Assertions = assertions
+
+	switch {
+	case hasFailedAssertion(assertions):
+		report.Passed = false
+		report.Summary = driverSummaryOrDefault(driverReport.Summary, "scenario assertions failed")
+		report.FailureReason = "assertion_failed"
+	case !driverReport.Passed:
+		report.Passed = false
+		report.Summary = driverSummaryOrDefault(driverReport.Summary, "scenario reported failure")
+		report.FailureReason = "driver_reported_failure"
+	default:
+		report.Passed = true
+		report.Summary = driverSummaryOrDefault(driverReport.Summary, "scenario completed")
+	}
+
+	return report
+}
+
 func scenarioEvidenceMetadata(scenario Scenario) map[string]any {
 	metadata := map[string]any{
 		"id":   scenario.ID,
@@ -218,12 +242,9 @@ func scenarioEvidenceMetadata(scenario Scenario) map[string]any {
 	return metadata
 }
 
-func sanitizeSummary(summary string) string {
+func driverSummaryOrDefault(summary, defaultSummary string) string {
 	if summary == "" {
-		return "scenario completed"
-	}
-	if isSafeHarnessSummary(summary) {
-		return summary
+		return defaultSummary
 	}
 	return redactedSummaryText
 }
@@ -249,17 +270,158 @@ func sanitizeAssertionDetails(details string) string {
 	return redactedAssertionDetailsText
 }
 
-func isSafeHarnessSummary(summary string) bool {
-	return summary == "scenario completed" ||
-		summary == "scenario execution failed" ||
-		summary == "scenario execution timed out" ||
-		summary == "scenario completed but evidence persistence failed" ||
-		strings.HasPrefix(summary, "scenario rejected:")
+func executeDriver(ctx context.Context, driver Driver, scenario Scenario) (Report, error, time.Time) {
+	type driverResult struct {
+		report     Report
+		err        error
+		finishedAt time.Time
+	}
+
+	resultCh := make(chan driverResult, 1)
+	go func() {
+		report, err := driver.Execute(ctx, scenario)
+		resultCh <- driverResult{
+			report:     report,
+			err:        err,
+			finishedAt: time.Now().UTC(),
+		}
+	}()
+
+	select {
+	case result := <-resultCh:
+		if ctx.Err() != nil {
+			return Report{}, context.DeadlineExceeded, time.Now().UTC()
+		}
+		return result.report, result.err, result.finishedAt
+	case <-ctx.Done():
+		return Report{}, context.DeadlineExceeded, time.Now().UTC()
+	}
+}
+
+type assertionValidationState int
+
+const (
+	assertionResultsValid assertionValidationState = iota
+	assertionResultsInvalid
+)
+
+func reconcileAssertionResults(declared []Assertion, actual []AssertionResult) ([]AssertionResult, assertionValidationState) {
+	if len(declared) == 0 {
+		if len(actual) > 0 {
+			return nil, assertionResultsInvalid
+		}
+		return nil, assertionResultsValid
+	}
+
+	resultsByName := make(map[string]AssertionResult, len(actual))
+	for _, result := range actual {
+		if _, ok := resultsByName[result.Name]; ok {
+			return nil, assertionResultsInvalid
+		}
+		resultsByName[result.Name] = result
+	}
+
+	reconciled := make([]AssertionResult, 0, len(declared))
+	for index, assertion := range declared {
+		result, ok := resultsByName[assertion.Name]
+		if !ok {
+			return nil, assertionResultsInvalid
+		}
+		delete(resultsByName, assertion.Name)
+		reconciled = append(reconciled, AssertionResult{
+			Name:    persistedAssertionName(assertion.Name, index),
+			Passed:  result.Passed,
+			Details: sanitizeAssertionDetails(result.Details),
+		})
+	}
+
+	if len(resultsByName) > 0 {
+		return nil, assertionResultsInvalid
+	}
+
+	return reconciled, assertionResultsValid
+}
+
+func hasFailedAssertion(assertions []AssertionResult) bool {
+	for _, assertion := range assertions {
+		if !assertion.Passed {
+			return true
+		}
+	}
+	return false
+}
+
+func persistedAssertionName(name string, index int) string {
+	if isSafeIdentifier(name) {
+		return name
+	}
+	return fmt.Sprintf("assertion_%d", index+1)
+}
+
+func evidenceDirectory(root, scenarioID string) (string, error) {
+	if !isSafeIdentifier(scenarioID) {
+		return "", fmt.Errorf("invalid scenario id %q", scenarioID)
+	}
+
+	evidenceRoot := filepath.Join(root, "artifacts", "evidence")
+	dir := filepath.Join(evidenceRoot, scenarioID)
+
+	absRoot, err := filepath.Abs(evidenceRoot)
+	if err != nil {
+		return "", err
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	prefix := absRoot + string(os.PathSeparator)
+	if absDir != absRoot && !strings.HasPrefix(absDir, prefix) {
+		return "", fmt.Errorf("evidence path escapes root: %s", absDir)
+	}
+
+	return absDir, nil
+}
+
+func reportScenarioID(path, decodedID string) string {
+	if isSafeIdentifier(decodedID) {
+		return decodedID
+	}
+	return scenarioIDFromPath(path)
+}
+
+func isSafeIdentifier(value string) bool {
+	return safeIdentifierPattern.MatchString(value)
 }
 
 func scenarioIDFromPath(path string) string {
 	name := filepath.Base(path)
-	return strings.TrimSuffix(name, filepath.Ext(name))
+	id := strings.TrimSuffix(name, filepath.Ext(name))
+	if isSafeIdentifier(id) {
+		return id
+	}
+
+	var builder strings.Builder
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '.' || r == '-' || r == '_':
+			builder.WriteRune(r)
+		default:
+			builder.WriteRune('-')
+		}
+	}
+
+	candidate := strings.Trim(builder.String(), "-.")
+	if !isSafeIdentifier(candidate) {
+		return "scenario"
+	}
+
+	return candidate
 }
 
 func repoRoot() string {

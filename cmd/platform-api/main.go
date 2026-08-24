@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,19 +15,20 @@ import (
 )
 
 const (
-	defaultAddress    = ":8080"
-	readTimeout       = 5 * time.Second
-	readHeaderTimeout = 2 * time.Second
-	writeTimeout      = 10 * time.Second
-	idleTimeout       = 30 * time.Second
-	shutdownTimeout   = 10 * time.Second
+	defaultAddress      = ":8080"
+	defaultPostgresPort = "5432"
+	readTimeout         = 5 * time.Second
+	readHeaderTimeout   = 2 * time.Second
+	writeTimeout        = 10 * time.Second
+	idleTimeout         = 30 * time.Second
+	shutdownTimeout     = 10 * time.Second
 )
 
 func main() {
 	logger := log.New(os.Stdout, "platform-api ", log.LstdFlags|log.LUTC)
 	server := &http.Server{
 		Addr:              listenAddress(),
-		Handler:           platform.New(platform.Dependencies{}),
+		Handler:           appHandler(),
 		ReadTimeout:       readTimeout,
 		ReadHeaderTimeout: readHeaderTimeout,
 		WriteTimeout:      writeTimeout,
@@ -68,4 +70,69 @@ func listenAddress() string {
 	}
 
 	return defaultAddress
+}
+
+func appHandler() http.Handler {
+	return platform.New(platform.Dependencies{
+		ReadinessDependencies: []platform.ReadinessDependency{
+			postgresReadinessDependency{
+				host:     os.Getenv("PLATFORM_POSTGRES_HOST"),
+				port:     postgresPortFromEnv(),
+				database: os.Getenv("PLATFORM_POSTGRES_DB"),
+				user:     os.Getenv("PLATFORM_POSTGRES_USER"),
+				password: os.Getenv("PLATFORM_POSTGRES_PASSWORD"),
+			},
+		},
+	})
+}
+
+func postgresAddressFromEnv() string {
+	host := os.Getenv("PLATFORM_POSTGRES_HOST")
+	if host == "" {
+		return ""
+	}
+
+	return net.JoinHostPort(host, postgresPortFromEnv())
+}
+
+func postgresPortFromEnv() string {
+	if value := os.Getenv("PLATFORM_POSTGRES_PORT"); value != "" {
+		return value
+	}
+
+	return defaultPostgresPort
+}
+
+type postgresReadinessDependency struct {
+	host     string
+	port     string
+	database string
+	user     string
+	password string
+}
+
+func (d postgresReadinessDependency) Name() string {
+	return "postgres"
+}
+
+func (d postgresReadinessDependency) CheckReadiness(ctx context.Context) error {
+	switch {
+	case d.host == "":
+		return errors.New("host is required")
+	case d.port == "":
+		return errors.New("port is required")
+	case d.database == "":
+		return errors.New("database is required")
+	case d.user == "":
+		return errors.New("user is required")
+	case d.password == "":
+		return errors.New("password is required")
+	}
+
+	conn, err := new(net.Dialer).DialContext(ctx, "tcp", net.JoinHostPort(d.host, d.port))
+	if err != nil {
+		return err
+	}
+
+	return conn.Close()
 }
