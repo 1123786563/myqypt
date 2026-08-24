@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/1123786563/myqypt/tests/platformtest/schema/scenario.schema.json",
+  "title": "Platform Evidence Scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "seam"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seam": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timeout": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inputs": {
+      "type": "object"
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "want": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object"
+    }
+  }
+}

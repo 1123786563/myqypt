@@ -9,3 +9,48 @@ services:
       - "8080:8080"
     volumes:
       - ../..:/workspace
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${PLATFORM_POSTGRES_DB:?PLATFORM_POSTGRES_DB is required}
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${PLATFORM_POSTGRES_PASSWORD:?PLATFORM_POSTGRES_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    ports:
+      - "5432:5432"
+    volumes:
+      - platform-postgres-data:/var/lib/postgresql/data
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    command: ["start-dev", "--health-enabled=true"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_PORT: "5432"
+      KC_DB_URL_DATABASE: ${KEYCLOAK_POSTGRES_DB:?KEYCLOAK_POSTGRES_DB is required}
+      KC_DB_USERNAME: ${KEYCLOAK_POSTGRES_USER:?KEYCLOAK_POSTGRES_USER is required}
+      KC_DB_PASSWORD: ${KEYCLOAK_POSTGRES_PASSWORD:?KEYCLOAK_POSTGRES_PASSWORD is required}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?KEYCLOAK_ADMIN is required}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD is required}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000; printf \"GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n\" >&3; grep -q \"200\" <&3'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    ports:
+      - "8081:8080"
+      - "9000:9000"
+volumes:
+  platform-postgres-data:
