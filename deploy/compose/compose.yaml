@@ -1,0 +1,11 @@
+services:
+  platform-api:
+    image: golang:1.26.3
+    working_dir: /workspace
+    command: go run ./cmd/platform-api
+    environment:
+      PLATFORM_API_ADDR: :8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../..:/workspace
