@@ -3,6 +3,7 @@ package platformtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,11 @@ import (
 )
 
 const defaultTimeout = 30 * time.Second
+
+const (
+	redactedSummaryText          = "driver summary omitted from evidence"
+	redactedAssertionDetailsText = "assertion details omitted from evidence"
+)
 
 type Driver interface {
 	Execute(context.Context, Scenario) (Report, error)
@@ -65,7 +71,13 @@ func Run(t *testing.T, scenarioPath string) Report {
 
 	report, err := driver.Execute(ctx, scenario)
 	if err != nil {
-		report = baseReport(scenario.ID, scenario.Seam, startedAt, false, "scenario execution failed", "driver_error")
+		summary := "scenario execution failed"
+		reason := "driver_error"
+		if errors.Is(err, context.DeadlineExceeded) {
+			summary = "scenario execution timed out"
+			reason = "driver_timeout"
+		}
+		report = baseReport(scenario.ID, scenario.Seam, startedAt, false, summary, reason)
 	}
 
 	if report.ScenarioID == "" {
@@ -148,10 +160,9 @@ func baseReport(scenarioID, seam string, startedAt time.Time, passed bool, summa
 }
 
 func finalizeReport(report Report, scenarioPath string, scenario Scenario) Report {
-	sensitiveValues := collectSensitiveValues(scenario)
-	report.Summary = sanitizeText(report.Summary, sensitiveValues)
-	report.Assertions = sanitizeAssertions(report.Assertions, sensitiveValues)
-	report.Scenario = redactScenario(scenario)
+	report.Summary = sanitizeSummary(report.Summary)
+	report.Assertions = sanitizeAssertions(report.Assertions)
+	report.Scenario = scenarioEvidenceMetadata(scenario)
 
 	evidencePath, err := writeReport(scenarioPath, report)
 	if err != nil {
@@ -192,132 +203,58 @@ func writeReport(scenarioPath string, report Report) (string, error) {
 	return path, nil
 }
 
-func redactScenario(scenario Scenario) map[string]any {
-	return redactAny(map[string]any{
-		"id":         scenario.ID,
-		"seam":       scenario.Seam,
-		"timeout":    scenario.Timeout,
-		"inputs":     scenario.Inputs,
-		"assertions": scenario.Assertions,
-		"metadata":   scenario.Metadata,
-	}).(map[string]any)
-}
-
-func redactAny(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		redacted := make(map[string]any, len(typed))
-		for key, child := range typed {
-			if shouldRedact(key) {
-				redacted[key] = "[REDACTED]"
-				continue
-			}
-			redacted[key] = redactAny(child)
-		}
-		return redacted
-	case []any:
-		redacted := make([]any, len(typed))
-		for i, child := range typed {
-			redacted[i] = redactAny(child)
-		}
-		return redacted
-	case []Assertion:
-		redacted := make([]any, 0, len(typed))
-		for _, assertion := range typed {
-			redacted = append(redacted, map[string]any{
-				"name": assertion.Name,
-				"want": redactAny(assertion.Want),
-			})
-		}
-		return redacted
-	default:
-		return typed
+func scenarioEvidenceMetadata(scenario Scenario) map[string]any {
+	metadata := map[string]any{
+		"id":   scenario.ID,
+		"seam": scenario.Seam,
 	}
+	if scenario.Timeout != "" {
+		metadata["timeout"] = scenario.Timeout
+	}
+	if len(scenario.Assertions) > 0 {
+		metadata["assertion_count"] = len(scenario.Assertions)
+	}
+
+	return metadata
 }
 
-func shouldRedact(key string) bool {
-	lowered := strings.ToLower(key)
-	return strings.Contains(lowered, "secret") ||
-		strings.Contains(lowered, "token") ||
-		strings.Contains(lowered, "prompt") ||
-		strings.Contains(lowered, "document") ||
-		strings.Contains(lowered, "payment_payload")
-}
-
-func sanitizeText(text string, sensitiveValues []string) string {
-	if text == "" {
+func sanitizeSummary(summary string) string {
+	if summary == "" {
 		return "scenario completed"
 	}
-
-	scrubbed := text
-	for _, sensitiveValue := range sensitiveValues {
-		if sensitiveValue == "" {
-			continue
-		}
-		scrubbed = strings.ReplaceAll(scrubbed, sensitiveValue, "[REDACTED]")
+	if isSafeHarnessSummary(summary) {
+		return summary
 	}
-
-	return scrubbed
+	return redactedSummaryText
 }
 
-func sanitizeAssertions(assertions []AssertionResult, sensitiveValues []string) []AssertionResult {
+func sanitizeAssertions(assertions []AssertionResult) []AssertionResult {
 	if len(assertions) == 0 {
 		return nil
 	}
 
 	clean := make([]AssertionResult, 0, len(assertions))
 	for _, assertion := range assertions {
-		assertion.Details = sanitizeText(assertion.Details, sensitiveValues)
+		assertion.Details = sanitizeAssertionDetails(assertion.Details)
 		clean = append(clean, assertion)
 	}
 
 	return clean
 }
 
-func collectSensitiveValues(scenario Scenario) []string {
-	var values []string
-	seen := map[string]struct{}{}
-	collectSensitiveValuesFromAny(map[string]any{
-		"inputs":     scenario.Inputs,
-		"assertions": scenario.Assertions,
-		"metadata":   scenario.Metadata,
-	}, false, seen, &values)
-	return values
+func sanitizeAssertionDetails(details string) string {
+	if details == "" {
+		return ""
+	}
+	return redactedAssertionDetailsText
 }
 
-func collectSensitiveValuesFromAny(value any, sensitive bool, seen map[string]struct{}, values *[]string) {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, child := range typed {
-			collectSensitiveValuesFromAny(child, sensitive || shouldRedact(key), seen, values)
-		}
-	case []any:
-		for _, child := range typed {
-			collectSensitiveValuesFromAny(child, sensitive, seen, values)
-		}
-	case []Assertion:
-		for _, assertion := range typed {
-			collectSensitiveValuesFromAny(map[string]any{
-				"name": assertion.Name,
-				"want": assertion.Want,
-			}, sensitive, seen, values)
-		}
-	case string:
-		if sensitive {
-			addSensitiveValue(typed, seen, values)
-		}
-	}
-}
-
-func addSensitiveValue(value string, seen map[string]struct{}, values *[]string) {
-	if value == "" {
-		return
-	}
-	if _, ok := seen[value]; ok {
-		return
-	}
-	seen[value] = struct{}{}
-	*values = append(*values, value)
+func isSafeHarnessSummary(summary string) bool {
+	return summary == "scenario completed" ||
+		summary == "scenario execution failed" ||
+		summary == "scenario execution timed out" ||
+		summary == "scenario completed but evidence persistence failed" ||
+		strings.HasPrefix(summary, "scenario rejected:")
 }
 
 func scenarioIDFromPath(path string) string {

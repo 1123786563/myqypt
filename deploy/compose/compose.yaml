@@ -13,10 +13,10 @@ services:
     image: postgres:17
     environment:
       POSTGRES_DB: ${PLATFORM_POSTGRES_DB:?PLATFORM_POSTGRES_DB is required}
-      POSTGRES_USER: platform
+      POSTGRES_USER: ${PLATFORM_POSTGRES_USER:?PLATFORM_POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${PLATFORM_POSTGRES_PASSWORD:?PLATFORM_POSTGRES_PASSWORD is required}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U platform"]
+      test: ["CMD-SHELL", "pg_isready -U ${PLATFORM_POSTGRES_USER:?PLATFORM_POSTGRES_USER is required}"]
       interval: 2s
       timeout: 2s
       retries: 30
