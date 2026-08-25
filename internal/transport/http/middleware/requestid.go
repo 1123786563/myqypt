@@ -1,9 +1,13 @@
-package httptransport
+// Package middleware provides the HTTP transport middleware assembled by
+// httptransport.NewRouter: request-ID correlation, security headers with
+// restricted CORS, access logging, and panic recovery.
+package middleware
 
 import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,14 +26,22 @@ const (
 	requestIDHexLength = 16
 )
 
-// RequestID returns middleware that resolves a request ID per request: a
-// non-empty inbound X-Request-ID header is reused verbatim, otherwise a
-// random hex ID is generated. The ID is stored in the gin context and echoed
-// on the response header. It deliberately does no logging or metrics.
+// validRequestID gates which inbound X-Request-ID values are reused: after
+// trimming surrounding whitespace, 1-64 characters from the letters, digits,
+// '-' and '_'. Anything else — including oversized or malformed values — is
+// replaced by a freshly generated ID, so the platform never propagates a
+// caller-controlled identifier that other systems would reject.
+var validRequestID = regexp.MustCompile(`^[A-Za-z0-9-_]{1,64}$`)
+
+// RequestID returns middleware that resolves a request ID per request: an
+// inbound X-Request-ID header that survives validation is reused verbatim,
+// otherwise a random hex ID is generated. The ID is stored in the gin
+// context and echoed on the response header. It deliberately does no logging
+// or metrics.
 func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := strings.TrimSpace(c.GetHeader(HeaderRequestID))
-		if id == "" {
+		if !validRequestID.MatchString(id) {
 			id = newRequestID()
 		}
 		c.Set(requestIDContextKey, id)

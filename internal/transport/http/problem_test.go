@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/1123786563/myqypt/internal/transport/http/api"
+	"github.com/1123786563/myqypt/internal/transport/http/middleware"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
 )
@@ -151,7 +152,7 @@ func TestValidatorRejectsInvalidRequestThroughProductionWiring(t *testing.T) {
 	}
 
 	engine := gin.New()
-	engine.Use(RequestID())
+	engine.Use(middleware.RequestID())
 	probe := engine.Group("/", openAPIValidatorMiddleware(doc))
 	probe.GET("/probe", func(c *gin.Context) {
 		c.Status(http.StatusOK)
@@ -208,8 +209,10 @@ func TestStrictRequestAndResponseErrorHooksWriteProblems(t *testing.T) {
 			c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 			// Mirror the two side effects of the RequestID middleware so the
 			// hooks run in the environment the real handler chain provides.
-			c.Set(requestIDContextKey, "hook-trace-7")
-			c.Header(HeaderRequestID, "hook-trace-7")
+			// The key literal mirrors the middleware's unexported gin
+			// context key, which moved to the middleware package.
+			c.Set("myqypt.request_id", "hook-trace-7")
+			c.Header(middleware.HeaderRequestID, "hook-trace-7")
 
 			tc.invoke(c, errors.New(tc.secretEr))
 
@@ -238,7 +241,7 @@ func (h erroringStatusHandler) GetSystemStatus(context.Context, api.GetSystemSta
 func TestStrictHandlerErrorWritesInternalErrorProblem(t *testing.T) {
 	useTestGinMode(t)
 	engine := gin.New()
-	engine.Use(RequestID())
+	engine.Use(middleware.RequestID())
 	api.RegisterHandlersWithOptions(
 		engine,
 		api.NewStrictHandlerWithOptions(erroringStatusHandler{failure: "secret internal failure"}, nil, strictServerOptions()),

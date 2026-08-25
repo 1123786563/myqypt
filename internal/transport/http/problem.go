@@ -1,6 +1,7 @@
 package httptransport
 
 import (
+	"github.com/1123786563/myqypt/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -53,7 +54,7 @@ func WriteProblem(c *gin.Context, p Problem) {
 		p.Type = problemTypePrefix + p.Code
 	}
 	if p.TraceID == "" {
-		p.TraceID = RequestIDFromContext(c)
+		p.TraceID = middleware.RequestIDFromContext(c)
 	}
 	c.Header("Content-Type", "application/problem+json")
 	c.AbortWithStatusJSON(p.Status, p)
