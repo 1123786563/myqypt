@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/1123786563/myqypt/db/migrations"
+	"github.com/1123786563/myqypt/internal/adapter/postgres"
 	"github.com/1123786563/myqypt/internal/platform/cli"
 	"github.com/1123786563/myqypt/internal/platform/runtime"
 	httptransport "github.com/1123786563/myqypt/internal/transport/http"
@@ -23,11 +25,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	command := cli.NewRoot(version, serve)
+	command := cli.NewRoot(version, serve, migrateFuncs())
 	command.SetArgs(os.Args[1:])
 	if err := command.ExecuteContext(ctx); err != nil {
 		log.Printf("platform-api: %v", err)
 		os.Exit(1)
+	}
+}
+
+func migrateFuncs() cli.MigrateFuncs {
+	return cli.MigrateFuncs{
+		Up: func(ctx context.Context) error {
+			return postgres.RunMigrateUp(ctx, os.Getenv("DATABASE_URL"), migrations.FS)
+		},
+		DownOne: func(ctx context.Context) error {
+			return postgres.RunMigrateDownOne(ctx, os.Getenv("DATABASE_URL"), migrations.FS)
+		},
 	}
 }
 
