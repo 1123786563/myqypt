@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -22,12 +23,12 @@ const (
 
 func TestPlatformAPIProcess(t *testing.T) {
 	binary := buildPlatformAPI(t)
-	address := unusedAddress(t)
 
-	first := startPlatformAPI(t, binary, address)
+	first := startPlatformAPI(t, binary, "127.0.0.1:0", true)
+	address := waitForReportedAddress(t, first)
 	waitForLivez(t, first, address)
 
-	second := startPlatformAPI(t, binary, address)
+	second := startPlatformAPI(t, binary, address, false)
 	err := waitForProcess(second, processStartupTimeout)
 	if err == nil {
 		t.Fatal("second process started on an occupied address")
@@ -39,8 +40,8 @@ func TestPlatformAPIProcess(t *testing.T) {
 
 	assertStopsAfterSignal(t, first, syscall.SIGTERM)
 
-	sigintAddress := unusedAddress(t)
-	sigintProcess := startPlatformAPI(t, binary, sigintAddress)
+	sigintProcess := startPlatformAPI(t, binary, "127.0.0.1:0", true)
+	sigintAddress := waitForReportedAddress(t, sigintProcess)
 	waitForLivez(t, sigintProcess, sigintAddress)
 	assertStopsAfterSignal(t, sigintProcess, syscall.SIGINT)
 }
@@ -56,28 +57,21 @@ func buildPlatformAPI(t *testing.T) string {
 }
 
 type platformProcess struct {
-	command *exec.Cmd
-	output  *bytes.Buffer
-	done    chan error
+	command       *exec.Cmd
+	output        *bytes.Buffer
+	done          chan error
+	addressFile   string
+	reportAddress bool
 }
 
-func unusedAddress(t *testing.T) string {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("allocate address: %v", err)
-	}
-	address := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatalf("release address: %v", err)
-	}
-	return address
-}
-
-func startPlatformAPI(t *testing.T, binary, address string) *platformProcess {
+func startPlatformAPI(t *testing.T, binary, address string, reportAddress bool) *platformProcess {
 	t.Helper()
 	command := exec.Command(binary, "serve")
 	command.Env = append(command.Environ(), "PLATFORM_API_ADDR="+address)
+	addressFile := filepath.Join(t.TempDir(), "platform-api-address")
+	if reportAddress {
+		command.Env = append(command.Env, "PLATFORM_API_ADDR_FILE="+addressFile)
+	}
 	var output bytes.Buffer
 	command.Stdout = &output
 	command.Stderr = &output
@@ -85,9 +79,11 @@ func startPlatformAPI(t *testing.T, binary, address string) *platformProcess {
 		t.Fatalf("start platform-api: %v", err)
 	}
 	process := &platformProcess{
-		command: command,
-		output:  &output,
-		done:    make(chan error, 1),
+		command:       command,
+		output:        &output,
+		done:          make(chan error, 1),
+		addressFile:   addressFile,
+		reportAddress: reportAddress,
 	}
 	go func() {
 		process.done <- command.Wait()
@@ -101,6 +97,37 @@ func startPlatformAPI(t *testing.T, binary, address string) *platformProcess {
 		}
 	})
 	return process
+}
+
+func waitForReportedAddress(t *testing.T, process *platformProcess) string {
+	t.Helper()
+	if !process.reportAddress {
+		t.Fatal("process was not configured to report its address")
+	}
+
+	deadline := time.Now().Add(processStartupTimeout)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-process.done:
+			t.Fatalf("platform-api exited before reporting its address: %v\n%s", err, process.output.String())
+		default:
+		}
+
+		data, err := os.ReadFile(process.addressFile)
+		if err == nil {
+			address := strings.TrimSpace(string(data))
+			if address != "" {
+				return address
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("read reported address: %v", err)
+		}
+
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	t.Fatalf("platform-api did not report its address within %s\n%s", processStartupTimeout, process.output.String())
+	return ""
 }
 
 func waitForLivez(t *testing.T, process *platformProcess, address string) {
