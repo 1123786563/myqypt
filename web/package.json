@@ -13,6 +13,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "verify:static": "node scripts/assert-static-build.mjs",
+    "verify:forbidden": "node scripts/check-forbidden-content.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
