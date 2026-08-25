@@ -1,0 +1,68 @@
+services:
+  platform-api:
+    image: golang:1.26.7
+    working_dir: /workspace
+    command: go run ./cmd/platform-api serve
+    environment:
+      PLATFORM_API_ADDR: :8080
+      PLATFORM_POSTGRES_HOST: postgres
+      PLATFORM_POSTGRES_PORT: "5432"
+      PLATFORM_POSTGRES_DB: ${PLATFORM_POSTGRES_DB:?PLATFORM_POSTGRES_DB is required}
+      PLATFORM_POSTGRES_USER: ${PLATFORM_POSTGRES_USER:?PLATFORM_POSTGRES_USER is required}
+      PLATFORM_POSTGRES_PASSWORD: ${PLATFORM_POSTGRES_PASSWORD:?PLATFORM_POSTGRES_PASSWORD is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../..:/workspace
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${PLATFORM_POSTGRES_DB:?PLATFORM_POSTGRES_DB is required}
+      POSTGRES_USER: ${PLATFORM_POSTGRES_USER:?PLATFORM_POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${PLATFORM_POSTGRES_PASSWORD:?PLATFORM_POSTGRES_PASSWORD is required}
+      KEYCLOAK_POSTGRES_DB: ${KEYCLOAK_POSTGRES_DB:?KEYCLOAK_POSTGRES_DB is required}
+      KEYCLOAK_POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:?KEYCLOAK_POSTGRES_USER is required}
+      KEYCLOAK_POSTGRES_PASSWORD: ${KEYCLOAK_POSTGRES_PASSWORD:?KEYCLOAK_POSTGRES_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PLATFORM_POSTGRES_USER:?PLATFORM_POSTGRES_USER is required}"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    ports:
+      - "5432:5432"
+    volumes:
+      - platform-postgres-data:/var/lib/postgresql/data
+      - ./postgres-init/10-keycloak-db.sh:/docker-entrypoint-initdb.d/10-keycloak-db.sh:ro
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    command: ["start-dev", "--health-enabled=true"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_PORT: "5432"
+      KC_DB_URL_DATABASE: ${KEYCLOAK_POSTGRES_DB:?KEYCLOAK_POSTGRES_DB is required}
+      KC_DB_USERNAME: ${KEYCLOAK_POSTGRES_USER:?KEYCLOAK_POSTGRES_USER is required}
+      KC_DB_PASSWORD: ${KEYCLOAK_POSTGRES_PASSWORD:?KEYCLOAK_POSTGRES_PASSWORD is required}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?KEYCLOAK_ADMIN is required}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD is required}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000; printf \"GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n\" >&3; grep -q \"200\" <&3'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    ports:
+      - "8081:8080"
+      - "9000:9000"
+volumes:
+  platform-postgres-data:
