@@ -61,7 +61,7 @@
 | 0053 | [Preserve Credit source Lots for consumption and refund](../adr/0053-preserve-credit-source-lots-for-consumption-and-refund.md) | accepted |
 | 0054 | [Support electronic invoice requests in Stage 1](../adr/0054-support-electronic-invoice-requests-in-stage-1.md) | accepted |
 | 0055 | [Use evidence triggers for deferred Platform components](../adr/0055-use-evidence-triggers-for-deferred-platform-components.md) | accepted |
-| 0056 | [Use a Platform-owned notification gateway for outbound communication](../adr/0056-use-a-notification-gateway-for-outbound-communication.md) | proposed |
+| 0056 | [Use a Platform-owned notification gateway for outbound communication](../adr/0056-use-a-notification-gateway-for-outbound-communication.md) | accepted |
 | 0057 | [Resolve the P0 Production Gate inventory](../adr/0057-resolve-the-p0-production-gate-inventory.md) | accepted (amends 0044) |
 
 ## Reading order

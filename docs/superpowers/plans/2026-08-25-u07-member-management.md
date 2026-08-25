@@ -4,7 +4,7 @@
 
 **Goal:** 交付成员管理页（仅 Business Tenant，T04）：邀请成员（T05）、分配/变更 Platform Role（T06）、授予/撤销 Product Access（T08/T09）、查看成员变更审计（T07）——Owner/Admin 可用，Member 只读自己的入口；Personal Tenant 不显示本页。
 
-**Architecture:** 页面 = /app/members + BFF 端点：GET /portal-api/members（成员 + Membership 状态 + Role + Product Access）、POST /portal-api/members/invitations（T05，返回邀请链接/凭据）、POST /portal-api/members/{id}/role（T06）、POST /portal-api/members/{id}/product-access（T08/T09 授权或撤销）。邀请交付依赖出站通知通道（ADR-0056 proposed，2026-08-25 已有初稿）——本计划将邀请链接以「复制链接」方式交付；短信/邮件通道在 ADR-0056 转正并通过外部确认（external-confirmations「Notification channel」行）后接入，不阻塞邀请链接功能。撤销 Product Access 需立即生效（T09 语义：DB revoke + 异步删 tuple），页面展示 revoking → revoked，不做「撤销成功」假象。
+**Architecture:** 页面 = /app/members + BFF 端点：GET /portal-api/members（成员 + Membership 状态 + Role + Product Access）、POST /portal-api/members/invitations（T05，返回邀请链接/凭据）、POST /portal-api/members/{id}/role（T06）、POST /portal-api/members/{id}/product-access（T08/T09 授权或撤销）。邀请交付依赖出站通知通道（ADR-0056 accepted 2026-08-25，裁决见 #131）——本计划将邀请链接以「复制链接」方式交付；短信/邮件通道在服务商合规事实通过外部确认（external-confirmations「Notification channel」行，T86.11 dossier）后接入，不阻塞邀请链接功能。撤销 Product Access 需立即生效（T09 语义：DB revoke + 异步删 tuple），页面展示 revoking → revoked，不做「撤销成功」假象。
 
 **Tech Stack:** React 19、TypeScript、Vite、Tailwind 4、TanStack Query、Vitest Browser、Playwright、Go BFF
 
