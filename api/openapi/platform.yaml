@@ -1,0 +1,37 @@
+openapi: 3.1.0
+info:
+  title: MyQYPT Platform API
+  description: >-
+    Public HTTP contract for the myqypt platform. This document is the single
+    source of truth for the public API surface; transport code is generated
+    from it with oapi-codegen.
+  version: 0.1.0
+paths:
+  /api/v1/system/status:
+    get:
+      operationId: getSystemStatus
+      summary: Report whether the platform service is available.
+      responses:
+        "200":
+          description: The platform service is available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStatus"
+components:
+  schemas:
+    SystemStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - version
+      properties:
+        status:
+          type: string
+          const: available
+          description: Fixed availability marker for the platform service.
+        version:
+          type: string
+          minLength: 1
+          description: Build version of the running platform service.

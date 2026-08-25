@@ -12,7 +12,7 @@ import (
 func TestLivezReportsOnlyProcessLiveness(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/livez", nil)
 	response := httptest.NewRecorder()
-	httptransport.NewRouter().ServeHTTP(response, request)
+	httptransport.NewRouter(httptransport.Dependencies{Version: "test"}).ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d", response.Code)
 	}
@@ -28,7 +28,7 @@ func TestNewRouterDoesNotChangeGinMode(t *testing.T) {
 		gin.SetMode(originalMode)
 	})
 
-	httptransport.NewRouter()
+	httptransport.NewRouter(httptransport.Dependencies{Version: "test"})
 
 	if got := gin.Mode(); got != gin.TestMode {
 		t.Fatalf("gin mode=%q, want %q", got, gin.TestMode)

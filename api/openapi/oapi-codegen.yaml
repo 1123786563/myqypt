@@ -1,0 +1,13 @@
+# oapi-codegen configuration for the platform API contract.
+#
+# The generated code lands in internal/transport/http/api. go:generate runs
+# this command from that directory (see generate.go there), so the paths
+# below are documented in the directive; this `output` value is resolved
+# relative to that working directory.
+package: api
+output: server.gen.go
+generate:
+  gin-server: true
+  strict-server: true
+  models: true
+  embedded-spec: true
