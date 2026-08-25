@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 19、TypeScript、Vite、Tailwind 4、shadcn、Vitest Browser、Playwright
 
-**Spec:** [GitHub Issue 待创建（U00，#122 起，见 portal-ui-index）](https://github.com/1123786563/myqypt/issues)、`docs/architecture/architecture-baseline-risk-assessment-v1.1.md` §4/§13/§17、`docs/superpowers/specs/2026-08-24-shadcn-admin-go-admin-extraction-design.md` §5.2
+**Spec:** [GitHub Issue #122](https://github.com/1123786563/myqypt/issues)、`docs/architecture/architecture-baseline-risk-assessment-v1.1.md` §4/§13/§17、`docs/superpowers/specs/2026-08-24-shadcn-admin-go-admin-extraction-design.md` §5.2
 
 ## Global Constraints
 

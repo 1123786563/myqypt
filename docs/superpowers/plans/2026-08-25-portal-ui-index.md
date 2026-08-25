@@ -18,17 +18,17 @@
 
 | ID | Issue | Plan | Direct prerequisites（计划/issue） | 消费的后端能力 |
 | --- | --- | --- | --- | --- |
-| U00 | 待创建（#122+） | [Commerce UI Kit](2026-08-25-u00-commerce-ui-kit.md) | F07、F09、F12 | —（纯前端共享组件） |
-| U01 | 待创建 | [App Center](2026-08-25-u01-app-center.md) | U00、F07、F12 | T13 Catalog、T19 Lifecycle 状态查询、T24 SSO 入口、T64 购买启用 |
-| U02 | 待创建 | [Product Checkout](2026-08-25-u02-product-checkout.md) | U00、F12、F14、F15 | T14/T15 版本与 Offer、T16/T17/T56/T57/T58 支付、T18/T20 履约启用、T64 |
-| U03 | 待创建 | [Balance Recharge](2026-08-25-u03-balance-recharge.md) | U00、F12 | T16/T17/T56/T57/T58 支付、T59 Credit Lot 履约、T60 消费展示 |
-| U04 | 待创建 | [Usage View](2026-08-25-u04-usage-view.md) | U00、F12、F13 | T42–T44 用量管线、T45 Allowance、T46/T48 计价结算、T52 可解释账单、T60 |
-| U05 | 待创建 | [Billing View](2026-08-25-u05-billing-view.md) | U00、F12、F13 | T19、T52、T60、T61 退款、T65 套餐变更 |
-| U06 | 待创建 | [Invoice View](2026-08-25-u06-invoice-view.md) | U00、F12 | T62 对账事实、T63 税号与发票请求 |
-| U07 | 待创建 | [Member Management](2026-08-25-u07-member-management.md) | U00、F12、F13 | T04 企业租户、T05 邀请、T06 角色、T08/T09 授权、T24 SSO |
-| U08 | 待创建 | [Settings](2026-08-25-u08-settings.md) | U00、F12 | T03 租户上下文、T63 税号、T70 导出、T71 只读保留、T72 擦除状态 |
+| U00 | [#122](https://github.com/1123786563/myqypt/issues/122) | [Commerce UI Kit](2026-08-25-u00-commerce-ui-kit.md) | F07、F09、F12 | —（纯前端共享组件） |
+| U01 | [#123](https://github.com/1123786563/myqypt/issues/123) | [App Center](2026-08-25-u01-app-center.md) | U00、F07、F12 | T13 Catalog、T19 Lifecycle 状态查询、T24 SSO 入口、T64 购买启用 |
+| U02 | [#124](https://github.com/1123786563/myqypt/issues/124) | [Product Checkout](2026-08-25-u02-product-checkout.md) | U00、F12、F14、F15 | T14/T15 版本与 Offer、T16/T17/T56/T57/T58 支付、T18/T20 履约启用、T64 |
+| U03 | [#125](https://github.com/1123786563/myqypt/issues/125) | [Balance Recharge](2026-08-25-u03-balance-recharge.md) | U00、F12 | T16/T17/T56/T57/T58 支付、T59 Credit Lot 履约、T60 消费展示 |
+| U04 | [#126](https://github.com/1123786563/myqypt/issues/126) | [Usage View](2026-08-25-u04-usage-view.md) | U00、F12、F13 | T42–T44 用量管线、T45 Allowance、T46/T48 计价结算、T52 可解释账单、T60 |
+| U05 | [#127](https://github.com/1123786563/myqypt/issues/127) | [Billing View](2026-08-25-u05-billing-view.md) | U00、F12、F13 | T19、T52、T60、T61 退款、T65 套餐变更 |
+| U06 | [#128](https://github.com/1123786563/myqypt/issues/128) | [Invoice View](2026-08-25-u06-invoice-view.md) | U00、F12 | T62 对账事实、T63 税号与发票请求 |
+| U07 | [#129](https://github.com/1123786563/myqypt/issues/129) | [Member Management](2026-08-25-u07-member-management.md) | U00、F12、F13 | T04 企业租户、T05 邀请、T06 角色、T08/T09 授权、T24 SSO |
+| U08 | [#130](https://github.com/1123786563/myqypt/issues/130) | [Settings](2026-08-25-u08-settings.md) | U00、F12 | T03 租户上下文、T63 税号、T70 导出、T71 只读保留、T72 擦除状态 |
 
-> Issue 创建约定：本系列 issue 在 main 推送后创建（编号 #122 起），创建后回填各计划 **Spec** 行的 Issue 链接，并按 issue-tracker.md 把 U01–U08 登记为 T87（#88）与 T88（#89）的 blocker。sync_stage1_plans_to_github.rb 需随 F 系列一起改造后才可再运行，本系列不依赖该脚本。
+> Issue 状态（2026-08-25）：#122–#130 已创建（U00–U08），U01–U08 已登记为 T87（#88）与 T88（#89）的 blocker；各计划 Spec 行已回填实际编号。sync_stage1_plans_to_github.rb 需随 F 系列一起改造后才可再运行，本系列不依赖该脚本。
 
 ## Cross-Plan Invariants（本系列所有计划必须遵守）
 

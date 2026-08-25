@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 19、TypeScript、Vite、Tailwind 4、TanStack Query、qrcode 渲染（shadcn 兼容、本地化）、Vitest Browser、Playwright、Go BFF
 
-**Spec:** [GitHub Issue 待创建（U02，#122 起，见 portal-ui-index）](https://github.com/1123786563/myqypt/issues)、docs/architecture/architecture-baseline-risk-assessment-v1.1.md §13/§14、ADR-0010、ADR-0018、ADR-0021、docs/superpowers/plans/2026-08-24-t56-payment-provider-conformance.md、2026-08-24-t57-wechat-paid-path.md、2026-08-24-t58-alipay-paid-path.md、2026-08-24-t64-paid-weknora-purchase.md
+**Spec:** [GitHub Issue #124](https://github.com/1123786563/myqypt/issues)、docs/architecture/architecture-baseline-risk-assessment-v1.1.md §13/§14、ADR-0010、ADR-0018、ADR-0021、docs/superpowers/plans/2026-08-24-t56-payment-provider-conformance.md、2026-08-24-t57-wechat-paid-path.md、2026-08-24-t58-alipay-paid-path.md、2026-08-24-t64-paid-weknora-purchase.md
 
 ## Global Constraints
 

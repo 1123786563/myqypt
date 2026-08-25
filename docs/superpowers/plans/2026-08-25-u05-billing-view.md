@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 19、TypeScript、Vite、Tailwind 4、TanStack Query、Vitest Browser、Playwright、Go BFF
 
-**Spec:** [GitHub Issue 待创建（U05，#122 起，见 portal-ui-index）](https://github.com/1123786563/myqypt/issues)、docs/architecture/architecture-baseline-risk-assessment-v1.1.md §13/§14/§21、ADR-0018、ADR-0053、docs/superpowers/plans/2026-08-24-t52-explainable-bill.md、2026-08-24-t60-credit-lot-consumption.md、2026-08-24-t61-provider-refund.md、2026-08-24-t65-subscription-plan-change.md
+**Spec:** [GitHub Issue #127](https://github.com/1123786563/myqypt/issues)、docs/architecture/architecture-baseline-risk-assessment-v1.1.md §13/§14/§21、ADR-0018、ADR-0053、docs/superpowers/plans/2026-08-24-t52-explainable-bill.md、2026-08-24-t60-credit-lot-consumption.md、2026-08-24-t61-provider-refund.md、2026-08-24-t65-subscription-plan-change.md
 
 ## Global Constraints
 

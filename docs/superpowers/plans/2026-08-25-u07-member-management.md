@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 19、TypeScript、Vite、Tailwind 4、TanStack Query、Vitest Browser、Playwright、Go BFF
 
-**Spec:** [GitHub Issue 待创建（U07，#122 起，见 portal-ui-index）](https://github.com/1123786563/myqypt/issues)、docs/architecture/architecture-baseline-risk-assessment-v1.1.md §4.1/§4.2/§9、ADR-0009、ADR-0022、docs/superpowers/plans/2026-08-24-t04-business-tenant.md、2026-08-24-t05-membership-invitation.md、2026-08-24-t06-platform-roles.md、2026-08-24-t08-openfga-grant-projection.md、2026-08-24-t09-openfga-immediate-revoke.md
+**Spec:** [GitHub Issue #129](https://github.com/1123786563/myqypt/issues)、docs/architecture/architecture-baseline-risk-assessment-v1.1.md §4.1/§4.2/§9、ADR-0009、ADR-0022、docs/superpowers/plans/2026-08-24-t04-business-tenant.md、2026-08-24-t05-membership-invitation.md、2026-08-24-t06-platform-roles.md、2026-08-24-t08-openfga-grant-projection.md、2026-08-24-t09-openfga-immediate-revoke.md
 
 ## Global Constraints
 
