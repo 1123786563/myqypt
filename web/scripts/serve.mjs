@@ -1,0 +1,93 @@
+// Minimal dependency-free static file server for the built landing page.
+//
+// Serves web/build/client on http://127.0.0.1:4173 (override with PORT).
+// Used by Playwright's webServer; handles SIGTERM/SIGINT for clean shutdown.
+import { createReadStream, existsSync, statSync } from 'node:fs'
+import http from 'node:http'
+import path from 'node:path'
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
+
+const root = path.resolve(fileURLToPath(new URL('../build/client', import.meta.url)))
+const host = '127.0.0.1'
+const port = Number(process.env.PORT ?? 4173)
+
+const mimeTypes = {
+  '.css': 'text/css; charset=utf-8',
+  '.gif': 'image/gif',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+}
+
+const sendError = (res, statusCode, message) => {
+  res.writeHead(statusCode, { 'content-type': 'text/plain; charset=utf-8' })
+  res.end(message)
+}
+
+const server = http.createServer((req, res) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    sendError(res, 405, 'method not allowed')
+    return
+  }
+
+  let pathname
+  try {
+    pathname = decodeURIComponent(new URL(req.url ?? '/', `http://${host}`).pathname)
+  } catch {
+    sendError(res, 400, 'bad request')
+    return
+  }
+
+  const filePath = path.resolve(root, `.${pathname === '/' ? '/index.html' : pathname}`)
+  if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) {
+    sendError(res, 403, 'forbidden')
+    return
+  }
+
+  let stats
+  try {
+    stats = statSync(filePath)
+  } catch {
+    sendError(res, 404, 'not found')
+    return
+  }
+  const fileName = stats.isDirectory() ? path.join(filePath, 'index.html') : filePath
+  if (!existsSync(fileName) || !statSync(fileName).isFile()) {
+    sendError(res, 404, 'not found')
+    return
+  }
+
+  res.writeHead(200, {
+    'content-type': mimeTypes[path.extname(fileName).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': statSync(fileName).size,
+  })
+  if (req.method === 'HEAD') {
+    res.end()
+    return
+  }
+  createReadStream(fileName)
+    .on('error', () => res.destroy())
+    .pipe(res)
+})
+
+server.listen(port, host, () => {
+  console.log(`static server listening on http://${host}:${port} (serving ${root})`)
+})
+
+const shutdown = () => {
+  server.close(() => process.exit(0))
+  setTimeout(() => process.exit(0), 1000).unref()
+}
+process.on('SIGTERM', shutdown)
+process.on('SIGINT', shutdown)
