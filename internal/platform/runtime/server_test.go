@@ -18,7 +18,7 @@ func TestServeStopsAfterContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- runtime.Serve(ctx, listener, httptransport.NewRouter(), runtime.DefaultConfig())
+		done <- runtime.Serve(ctx, listener, httptransport.NewRouter(httptransport.Dependencies{Version: "test"}), runtime.DefaultConfig())
 	}()
 
 	cancel()

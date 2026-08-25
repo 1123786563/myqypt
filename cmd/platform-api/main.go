@@ -48,7 +48,7 @@ func serve(ctx context.Context) error {
 		_ = listener.Close()
 		return err
 	}
-	return runtime.Serve(ctx, listener, httptransport.NewRouter(), runtime.DefaultConfig())
+	return runtime.Serve(ctx, listener, httptransport.NewRouter(httptransport.Dependencies{Version: version}), runtime.DefaultConfig())
 }
 
 func reportListenAddress(address string) error {
