@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 > 模板：[2026-08-25-p0-gate-template.md](2026-08-25-p0-gate-template.md)。本计划按模板重写（2026-08-25），替代旧版"目标句验收"写法。
-> **先决冲突（2026-08-25 ADR 审计 H1，必须先行裁决）**：ADR-0044 列 11 项 Gate，基线 §25 列 14 项（多 Tenant Export、Valkey Compatibility、Nacos Production PoC），且 ADR-0051 "Nacos 不得阻塞主链路"与基线 §25 的 Nacos P0 存在语义冲突。**本 Gate 实施前必须先落定唯一权威清单**（建议：以基线 §25 为准修订 ADR-0044，并裁定 Nacos PoC 为不可豁免验收但非主链路前置）。
+> **裁决结果（2026-08-25，ADR-0057 proposed）**：ADR-0044 与基线 §25 的清单分叉已由 ADR-0057 裁定——权威清单为 **13 项不可豁免 Gate**（0044 的 11 项 + Tenant Export + Verified Deduplication Backend）；**Nacos Production PoC 移出**付费上线清单，改为 AI Registry 旁路转正门（不阻塞上线，见 ADR-0051）。本 Gate 在 ADR-0057 转正（accepted）前不得执行。
 
 **Goal:** 聚合全部不可豁免 Production Gate 的机器可读结果与四方批准，输出可追溯的 paid-launch 或 blocked 结论——本计划**只做聚合与放行裁决，不重新实现任何 Gate 逻辑**（各 Gate 由 T38/T51/T53/T62/T66/T67/T68/T69/T70/T72/T74/T79/T81/T85/T86.x 分别验收）。
 
@@ -24,7 +24,7 @@
 
 ---
 
-## Gate Inventory（裁决后的权威清单；未裁决前标记为 PENDING）
+## Gate Inventory（ADR-0057 裁决后的权威清单：13 项）
 
 | # | gate_id | 负责计划 | 证据来源 |
 | --- | --- | --- | --- |
@@ -40,10 +40,9 @@
 | 10 | secret-rotation | T26 | docs/evidence/gates/t26-secret-rotation/ |
 | 11 | image-signature | T66 | docs/evidence/gates/t66-image-signature/ |
 | 12 | adapter-compatibility | T67 + T68 | docs/evidence/gates/t67-adapter-compat/ + t68-canary-upgrade/ |
-| 13 | valkey-compatibility | T54 + T86.8 | docs/evidence/gates/t54-valkey-compat/ + dossiers/ |
-| 14 | nacos-production-poc | T74 + T86.7 | docs/evidence/gates/t74-nacos-poc/ + dossiers/ |
+| 13 | verified-dedupe-backend | T54 + T86.8 | docs/evidence/gates/t54-valkey-compat/ + dossiers/ |
 
-> 未裁决前，第 8/13/14 项标记 PENDING；裁决完成后由本计划修订记录在案（修订 ADR-0044 或基线 §25，二选一）。
+> 旁路门（不属于本 Gate 聚合范围）：nacos-production-poc（T74 + T86.7）——AI Registry 能力从旁路 PoC 转为生产依赖的前置验收，失败仅降级该能力（ADR-0051 / ADR-0057）。
 
 ## 机械判据
 
@@ -62,7 +61,7 @@
 
 - 任一 gate 证据缺失/过期/不合格 ⇒ blocked（不推断通过）；
 - 四方批准缺失 ⇒ blocked；
-- 权威清单未裁决 ⇒ PENDING，不进入 launch。
+- ADR-0057 未转正（accepted）⇒ PENDING，不进入 launch。
 
 ---
 
@@ -72,11 +71,11 @@
 - Create `tests/production-gates/drivers/t88.go` + `t88_test.go`（聚合器：读取/校验/裁决）
 - Create `docs/evidence/gates/t88-paid-launch-gates/README.md`
 
-### Task 1: 先决裁决（实施前置，非编码任务）
+### Task 1: 先决裁决（已完成草案，待转正）
 
-- [ ] **Step 1:** 在 issue #89 记录 P0 Gate 清单分叉（ADR-0044 11 vs 基线 §25 14 + Nacos 语义冲突）。
-- [ ] **Step 2:** 裁决：修订 ADR-0044（补 Tenant Export/Valkey/Nacos）或修订基线 §25；更新本计划 Gate Inventory 的 PENDING 标记。
-- [ ] **Step 3:** 裁决记录附四方确认（架构决策级别，可在 issue 评论完成）。
+- [x] **Step 1:** 记录 P0 Gate 清单分叉（ADR-0044 11 vs 基线 §25 14 + Nacos 语义冲突）——见本文件头部与 2026-08-25 审计 H1。
+- [x] **Step 2:** 裁决草案：ADR-0057（13 项权威清单；Nacos 移为旁路转正门）；基线 §25 与本 Inventory 已对齐。
+- [ ] **Step 3:** 转正：架构 owner 接受 ADR-0057（status → accepted）+ 安全方对两项新增 Gate 复核；转正后在 ADR-INDEX 登记，并在 issue #89 评论记录裁决链接。
 
 ### Task 2: 聚合器
 

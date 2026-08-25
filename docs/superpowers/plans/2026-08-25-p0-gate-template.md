@@ -109,7 +109,7 @@ Platform engineering、security、finance/billing、product 四方各自独立�
 
 - 每个 Gate 计划实现一个 driver（`tests/production-gates/drivers/<gate_id>.go`），执行场景并产出 §3.4 结果清单；
 - T88 只做聚合：读取各 Gate 的结果清单 + 四方批准，输出 release 结论，**不重新实现 Gate 逻辑**；
-- Gate 清单的**唯一权威**待裁决（ADR-0044 11 项 vs 基线 §25 14 项分叉，见 2026-08-25 ADR 审计 H1）——T88 计划必须先落定权威清单再实施。
+- Gate 清单的**唯一权威**是 ADR-0057 的 13 项（2026-08-25 裁决 ADR-0044 与基线 §25 的分叉；Nacos Production PoC 移为 AI Registry 旁路转正门，不属于付费上线 P0）——T88 按 ADR-0057 清单聚合；0057 转正前 T88 不得执行。
 
 ## 6. 模板自检
 
