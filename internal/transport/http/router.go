@@ -3,6 +3,7 @@ package httptransport
 import (
 	"net/http"
 
+	"github.com/1123786563/myqypt/internal/application/readiness"
 	"github.com/1123786563/myqypt/internal/transport/http/api"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
@@ -10,8 +11,10 @@ import (
 )
 
 // Dependencies carries the transport-level configuration for NewRouter.
+// Readiness is optional: when absent, /readyz fails closed (503).
 type Dependencies struct {
-	Version string
+	Version   string
+	Readiness *readiness.Service
 }
 
 // defaultVersion mirrors cmd/platform-api's `var version = "dev"` default so
@@ -23,8 +26,9 @@ const defaultVersion = "dev"
 // request-ID middleware (engine-wide, so every response is correlatable),
 // OpenAPI request validation and the strict contract handlers (scoped to the
 // contract paths), and finally Problem Details mappings for unmatched routes
-// and methods. /livez stays outside the OpenAPI contract and is served
-// verbatim.
+// and methods. /livez and /readyz stay outside the OpenAPI contract as
+// operational endpoints: /livez is served verbatim, /readyz reports
+// dependency states only.
 func NewRouter(deps Dependencies) http.Handler {
 	version := deps.Version
 	if version == "" {
@@ -53,6 +57,8 @@ func NewRouter(deps Dependencies) http.Handler {
 		c.Header("Content-Type", "application/json")
 		c.String(http.StatusOK, `{"status":"alive"}`)
 	})
+
+	router.GET("/readyz", readinessHandler(deps.Readiness))
 
 	router.NoRoute(func(c *gin.Context) {
 		WriteProblem(c, newProblem(http.StatusNotFound, CodeNotFound))
