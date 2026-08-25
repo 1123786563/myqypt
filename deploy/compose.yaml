@@ -1,0 +1,57 @@
+# F03 compose smoke stack: PostgreSQL 18 plus platform-api running the
+# migrate-then-serve flow serve itself never migrates. Ports are bound to
+# loopback only and deliberately avoid the host's busy ports (15532/18080).
+# The postgres password is a fixed throwaway for this local-only stack.
+services:
+  platform-api:
+    image: golang:1.26.7
+    working_dir: /workspace
+    # Build once, apply migrations, then serve. `exec` keeps serve as PID 1
+    # so signals reach the graceful shutdown path.
+    command: >
+      sh -c "go build -o /tmp/platform-api ./cmd/platform-api
+      && /tmp/platform-api migrate up
+      && exec /tmp/platform-api serve"
+    environment:
+      DATABASE_URL: postgres://postgres:pw-f03-smoke@postgres:5432/platform?sslmode=disable
+      GOPROXY: https://goproxy.cn,direct
+      GOTOOLCHAIN: local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      - ../:/workspace
+      - platform-api-go-modules:/go/pkg/mod
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/livez >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      # The first run downloads every module and compiles the toolchain's
+      # standard library before /livez can answer.
+      start_period: 10m
+
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pw-f03-smoke
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d platform"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "127.0.0.1:15532:5432"
+    volumes:
+      # postgres:18 wants the mount at /var/lib/postgresql (it manages
+      # version-specific data subdirectories itself); mounting the data
+      # subdirectory directly makes the entrypoint abort.
+      - platform-postgres-data:/var/lib/postgresql
+
+volumes:
+  platform-api-go-modules:
+  platform-postgres-data:

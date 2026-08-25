@@ -8,9 +8,15 @@ import (
 	"io/fs"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the database/sql "pgx" driver
 	"github.com/pressly/goose/v3"
 )
+
+// errInvalidDatabaseURL is the static, URL-free error for a database URL
+// pgx cannot parse, mirroring pool.Open: pgx's own parse error embeds the
+// (password-masked) URL body, which must never be echoed.
+var errInvalidDatabaseURL = errors.New("postgres: invalid database URL")
 
 // migratePingTimeout bounds the fail-fast connectivity check on the migrate
 // command path.
@@ -61,13 +67,19 @@ func RunMigrateDownOne(ctx context.Context, databaseURL string, fsys fs.FS) erro
 func runMigrateCommand(ctx context.Context, databaseURL string, fsys fs.FS, migrate func(context.Context, *sql.DB, fs.FS) error) error {
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
-		return errors.New("postgres: invalid database URL")
+		return errInvalidDatabaseURL
 	}
 	defer db.Close()
 
 	pingCtx, cancel := context.WithTimeout(ctx, migratePingTimeout)
 	defer cancel()
 	if err := db.PingContext(pingCtx); err != nil {
+		// The pgx stdlib driver parses the DSN lazily at first connect, so
+		// a shape error surfaces here; its error carries the URL body.
+		var parseErr *pgconn.ParseConfigError
+		if errors.As(err, &parseErr) {
+			return errInvalidDatabaseURL
+		}
 		return fmt.Errorf("postgres: ping database before migrate: %w", err)
 	}
 

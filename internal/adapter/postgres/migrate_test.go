@@ -152,3 +152,27 @@ func TestMigrateRequiresConnection(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrateMalformedDSNDoesNotEchoURL(t *testing.T) {
+	// pgx parses the DSN lazily at first connect, so a shape error such as
+	// an unknown sslmode surfaces on the migrate command path's ping as a
+	// *pgconn.ParseConfigError whose text embeds the (password-masked) URL
+	// body. Neither the URL body nor the password may reach the error.
+	dsn := "postgres://user:SECRETMARKER@127.0.0.1:1/platform?sslmode=notamode"
+	ctx := context.Background()
+
+	commands := map[string]func(context.Context, string, fs.FS) error{
+		"up":       postgres.RunMigrateUp,
+		"down-one": postgres.RunMigrateDownOne,
+	}
+	for name, run := range commands {
+		err := run(ctx, dsn, migrations.FS)
+		if err == nil {
+			t.Fatalf("%s: expected an error for an unparseable DSN", name)
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "notamode") || strings.Contains(msg, "SECRETMARKER") {
+			t.Fatalf("%s: error echoes the DSN: %v", name, err)
+		}
+	}
+}
