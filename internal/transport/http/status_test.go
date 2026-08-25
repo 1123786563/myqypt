@@ -19,7 +19,7 @@ func TestSystemStatusReportsAvailableWithVersion(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 	}
-	if got := response.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+	if got := response.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("content-type=%q", got)
 	}
 	body := response.Body.String()
