@@ -2,7 +2,7 @@
 
 Issues and specifications for this repository live in GitHub repository `1123786563/myqypt`. Use the `gh` CLI for all issue operations.
 
-Because the Git remote uses a proxy URL, every `gh issue`, `gh pr`, and related `gh api` command must explicitly include `--repo 1123786563/myqypt` or target the repository in the API path.
+Every `gh issue`, `gh pr`, and related `gh api` command must explicitly include `--repo 1123786563/myqypt` or target the repository in the API path, so commands work from any checkout or worktree regardless of its Git remote configuration.
 
 ## Conventions
 
