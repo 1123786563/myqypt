@@ -26,7 +26,7 @@
 | Payment chain | Provider sandbox and production-like test proves `created → awaiting_payment → paid → fulfilled`, duplicate callback, recovery, partial refund and reconciliation | Commerce + Finance + QA | Paid launch blocked |
 | Disaster recovery | Measured Platform metadata RPO ≤15m, Product RPO ≤1h and RTO ≤4h in isolated restore | SRE + Product owners | Paid launch blocked |
 | Authorization | PostgreSQL/OpenFGA grant and revoke consistency, fail-closed behavior, model migration and rollback | Security + Platform | Paid launch blocked |
-| Notification channel | Outbound SMS/email providers: mainland SMS compliance (real-name, template review), email deliverability, fraud-control boundaries per recipient identity | Platform + Legal/Privacy | Verification-code and notification features blocked |
+| Notification channel | Outbound SMS/email providers: mainland SMS compliance (real-name, template review), email deliverability, fraud-control boundaries per recipient identity. Design accepted via ADR-0056 (ruling on #131, 2026-08-25); provider facts still gate production enablement (T86.11 dossier) | Platform + Legal/Privacy | Verification-code and notification features blocked |
 | Regulatory prerequisites | ICP filing, public-security filing, MLPS (等级保护), GenAI service filing and AI-content labeling obligations for a public paid SaaS in mainland China | Platform/SRE + Legal/Privacy | Paid launch blocked |
 
 ## Nacos fact snapshot
