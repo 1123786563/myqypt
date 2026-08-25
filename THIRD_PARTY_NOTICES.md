@@ -116,5 +116,11 @@ Both upstream projects referenced above are licensed under the MIT License:
 > IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 > CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-The copyright notice line specific to each upstream project is stated in that
-project's `LICENSE` file at the revision recorded above.
+The copyright notice line that each upstream's license requires to be preserved
+with the material derived from it (as quoted from that upstream's `LICENSE` file
+at the revision recorded above):
+
+- `satnaing/shadcn-admin` — engineering configuration patterns and theming
+  approach: `Copyright (c) 2024 Sat Naing`
+- `shadcn/ui` — the Button component copy at `web/src/components/ui/button.tsx`:
+  `Copyright (c) 2023 shadcn`

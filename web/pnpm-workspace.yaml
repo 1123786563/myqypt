@@ -1,3 +1,7 @@
+# Created by pnpm 11.7 for this single-package project; it declares no
+# workspace packages. It exists to carry the minimumReleaseAge supply-chain
+# policy context for the exact-pinned fresh releases: the excludes below are
+# toolchain packages whose pinned versions are younger than the policy window.
 minimumReleaseAgeExclude:
   - '@types/node@26.3.0'
   - '@typescript-eslint/eslint-plugin@8.68.0'
