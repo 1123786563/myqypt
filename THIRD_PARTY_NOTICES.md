@@ -74,9 +74,26 @@ are rejected in authored sources (`pnpm --dir web verify:forbidden`).
      `@/lib/utils` alias (this project configures no path alias).
   2. The JSDoc comment on the `asChild` prop is translated into Chinese.
   3. Formatting normalized by Prettier (single quotes, no semicolons).
-- No functional modifications: the variant and size presets, `asChild` behavior,
-  and the exported `Button` / `buttonVariants` API behave identically to the
-  canonical implementation.
+  4. The `destructive` variant preset is omitted: the local variant set is
+     `default` / `secondary` / `outline` / `ghost` / `link` only. As a
+     consequence there is no destructive styling or API locally —
+     `buttonVariants({ variant: 'destructive' })` is rejected by TypeScript —
+     and reintroducing it later requires adding the destructive color tokens
+     (e.g. `--destructive`, `--destructive-foreground`) to
+     `web/src/styles/app.css`.
+  5. The `aria-invalid:*` state classes (`aria-invalid:border-ring`,
+     `aria-invalid:ring-destructive/20`, `aria-invalid:border`) are omitted
+     from the base class string: the canonical file styles the invalid state
+     through those variants, the local copy does not.
+- Caveat: the token-level class details of the canonical file evolve across
+  upstream revisions (e.g. border-token and shadow details), so this list
+  tracks structural/functional deltas against the canonical Tailwind v4
+  "new-york" button as published at extraction time (2026-08), not
+  line-by-line class parity.
+- Functional status: `asChild`, the size presets, and the variant presets
+  that are present behave as in the canonical file, while the two omissions
+  above are deliberate functional reductions made for this extraction — no
+  consumer needs `destructive` or `aria-invalid` styling today.
 
 ## MIT License
 
