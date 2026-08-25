@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/1123786563/myqypt/internal/platform/cli"
@@ -14,6 +15,7 @@ import (
 )
 
 const defaultAddress = ":8080"
+const listenAddressFileEnv = "PLATFORM_API_ADDR_FILE"
 
 var version = "dev"
 
@@ -42,5 +44,29 @@ func serve(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := reportListenAddress(listener.Addr().String()); err != nil {
+		_ = listener.Close()
+		return err
+	}
 	return runtime.Serve(ctx, listener, httptransport.NewRouter(), runtime.DefaultConfig())
+}
+
+func reportListenAddress(address string) error {
+	path := os.Getenv(listenAddressFileEnv)
+	if path == "" {
+		return nil
+	}
+
+	tempFile := path + ".tmp"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(tempFile, []byte(address+"\n"), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tempFile, path); err != nil {
+		_ = os.Remove(tempFile)
+		return err
+	}
+	return nil
 }
