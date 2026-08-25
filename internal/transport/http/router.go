@@ -14,6 +14,11 @@ type Dependencies struct {
 	Version string
 }
 
+// defaultVersion mirrors cmd/platform-api's `var version = "dev"` default so
+// an unconfigured Dependencies can never serve a contract-violating empty
+// version (the SystemStatus schema requires version minLength 1).
+const defaultVersion = "dev"
+
 // NewRouter builds the platform HTTP transport. The middleware order is:
 // request-ID middleware (engine-wide, so every response is correlatable),
 // OpenAPI request validation and the strict contract handlers (scoped to the
@@ -21,6 +26,10 @@ type Dependencies struct {
 // and methods. /livez stays outside the OpenAPI contract and is served
 // verbatim.
 func NewRouter(deps Dependencies) http.Handler {
+	version := deps.Version
+	if version == "" {
+		version = defaultVersion
+	}
 	router := gin.New()
 	router.HandleMethodNotAllowed = true
 	router.Use(RequestID())
@@ -36,7 +45,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	contractRoutes := router.Group("/", openAPIValidatorMiddleware(swagger))
 	api.RegisterHandlersWithOptions(
 		contractRoutes,
-		api.NewStrictHandlerWithOptions(&StatusHandler{Version: deps.Version}, nil, strictServerOptions()),
+		api.NewStrictHandlerWithOptions(&StatusHandler{Version: version}, nil, strictServerOptions()),
 		api.GinServerOptions{},
 	)
 
