@@ -661,7 +661,7 @@ Product Adapter Compatibility
 Verified Deduplication Backend (Valkey compatibility or approved Redis fallback)
 ```
 
-> 2026-08-25 与 ADR-0057 对齐：Nacos Production PoC 移出付费上线不可豁免清单，改为 AI Registry 能力从旁路 PoC 转正的前置门（失败仅降级该能力，不阻塞上线，见 ADR-0051）；ADR-0044 的 11 项枚举由 ADR-0057 修订补齐 Tenant Export 与 Verified Deduplication Backend，以上 13 项为唯一权威清单（ADR-0057 转正前标记 proposed）。
+> 2026-08-25 与 ADR-0057 对齐：Nacos Production PoC 移出付费上线不可豁免清单，改为 AI Registry 能力从旁路 PoC 转正的前置门（失败仅降级该能力，不阻塞上线，见 ADR-0051）；ADR-0044 的 11 项枚举由 ADR-0057 修订补齐 Tenant Export 与 Verified Deduplication Backend，以上 13 项为唯一权威清单（ADR-0057，accepted 2026-08-25，amends 0044）。
 
 Platform engineering、安全、财务/计费和产品四方共同批准可复现证据。健康检查、单元测试、静态审计、Workflow 成功或小范围 Smoke Test 不能替代完整验收。
 

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-08-25
 amends: 0044
 ---
@@ -10,4 +10,4 @@ ADR-0044 and baseline v1.1 section 25 diverge on the non-waivable paid-launch ga
 
 Tenant Export joins the non-waivable set because ADR-0050 and baseline section 17 already make verifiable export a condition for entering the Shared production catalog and P0 risk 9 treats incomplete Export and Erasure as one failure mode; its absence from ADR-0044 was an enumeration gap, not a decision. The deduplication backend becomes a named gate because duplicate usage events feed billing directly (P0 risk 3), while remaining satisfiable by either backend so it never forces Valkey adoption. The Nacos production PoC is reclassified out of the paid-launch set: per ADR-0051 and the external-confirmation register, Nacos verification gates only the promotion of AI Registry capabilities from side-path PoCs to production dependencies, and its failure degrades those features without blocking launch.
 
-Consequences: T88 aggregates exactly the thirteen gates above; the side-path Nacos gate runs before any AI Registry feature becomes a production dependency; ADR-0044's non-waivable semantics are unchanged and strengthened only in enumeration; baseline section 25 carries the reconciled list with an annotation. This ADR is proposed pending acceptance by the architecture owner with a security review of the two added gates.
+Consequences: T88 aggregates exactly the thirteen gates above; the side-path Nacos gate runs before any AI Registry feature becomes a production dependency; ADR-0044's non-waivable semantics are unchanged and strengthened only in enumeration; baseline section 25 carries the reconciled list with an annotation. Accepted by the architecture owner on 2026-08-25; security review of the two added gates (Tenant Export, Verified Deduplication Backend) is recorded on issue #89.

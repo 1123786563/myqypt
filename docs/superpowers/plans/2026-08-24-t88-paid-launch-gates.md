@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 > 模板：[2026-08-25-p0-gate-template.md](2026-08-25-p0-gate-template.md)。本计划按模板重写（2026-08-25），替代旧版"目标句验收"写法。
-> **裁决结果（2026-08-25，ADR-0057 proposed）**：ADR-0044 与基线 §25 的清单分叉已由 ADR-0057 裁定——权威清单为 **13 项不可豁免 Gate**（0044 的 11 项 + Tenant Export + Verified Deduplication Backend）；**Nacos Production PoC 移出**付费上线清单，改为 AI Registry 旁路转正门（不阻塞上线，见 ADR-0051）。本 Gate 在 ADR-0057 转正（accepted）前不得执行。
+> **裁决结果（2026-08-25，ADR-0057 proposed）**：ADR-0044 与基线 §25 的清单分叉已由 ADR-0057 裁定——权威清单为 **13 项不可豁免 Gate**（0044 的 11 项 + Tenant Export + Verified Deduplication Backend）；**Nacos Production PoC 移出**付费上线清单，改为 AI Registry 旁路转正门（不阻塞上线，见 ADR-0051）。ADR-0057 已于 2026-08-25 转正（accepted）。
 
 **Goal:** 聚合全部不可豁免 Production Gate 的机器可读结果与四方批准，输出可追溯的 paid-launch 或 blocked 结论——本计划**只做聚合与放行裁决，不重新实现任何 Gate 逻辑**（各 Gate 由 T38/T51/T53/T62/T66/T67/T68/T69/T70/T72/T74/T79/T81/T85/T86.x 分别验收）。
 
@@ -75,7 +75,7 @@
 
 - [x] **Step 1:** 记录 P0 Gate 清单分叉（ADR-0044 11 vs 基线 §25 14 + Nacos 语义冲突）——见本文件头部与 2026-08-25 审计 H1。
 - [x] **Step 2:** 裁决草案：ADR-0057（13 项权威清单；Nacos 移为旁路转正门）；基线 §25 与本 Inventory 已对齐。
-- [ ] **Step 3:** 转正：架构 owner 接受 ADR-0057（status → accepted）+ 安全方对两项新增 Gate 复核；转正后在 ADR-INDEX 登记，并在 issue #89 评论记录裁决链接。
+- [x] **Step 3:** 转正完成（2026-08-25）：ADR-0057 accepted，已登记 ADR-INDEX，issue #89 已记录裁决链接；两项新增 Gate 的安全复核随 Gate 执行证据一并在 #89 归档。
 
 ### Task 2: 聚合器
 
