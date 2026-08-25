@@ -102,6 +102,7 @@
 | T86.8 | [#97](https://github.com/1123786563/myqypt/issues/97) | P23-evidence | [2026-08-24-t86-8-valkey-openmeter-compatibility.md](2026-08-24-t86-8-valkey-openmeter-compatibility.md) |
 | T86.9 | [#98](https://github.com/1123786563/myqypt/issues/98) | P23-evidence | [2026-08-24-t86-9-weknora-shared-security.md](2026-08-24-t86-9-weknora-shared-security.md) |
 | T86.10 | [#99](https://github.com/1123786563/myqypt/issues/99) | P23-evidence | [2026-08-24-t86-10-openmeter-commerce-chain.md](2026-08-24-t86-10-openmeter-commerce-chain.md) |
+| T86.11 | [#131](https://github.com/1123786563/myqypt/issues/131) | P23-evidence | [2026-08-25-t86-11-notification-channel-dossier.md](2026-08-25-t86-11-notification-channel-dossier.md) |
 | T01.1 | [#100](https://github.com/1123786563/myqypt/issues/100) | P0-foundation | [2026-08-24-t01-1-platform-scaffold-test-harness.md](2026-08-24-t01-1-platform-scaffold-test-harness.md) |
 | T01.2 | [#101](https://github.com/1123786563/myqypt/issues/101) | P0-foundation | [2026-08-24-t01-2-keycloak-verified-identity-binding.md](2026-08-24-t01-2-keycloak-verified-identity-binding.md) |
 
