@@ -104,3 +104,16 @@
 | T86.10 | [#99](https://github.com/1123786563/myqypt/issues/99) | P23-evidence | [2026-08-24-t86-10-openmeter-commerce-chain.md](2026-08-24-t86-10-openmeter-commerce-chain.md) |
 | T01.1 | [#100](https://github.com/1123786563/myqypt/issues/100) | P0-foundation | [2026-08-24-t01-1-platform-scaffold-test-harness.md](2026-08-24-t01-1-platform-scaffold-test-harness.md) |
 | T01.2 | [#101](https://github.com/1123786563/myqypt/issues/101) | P0-foundation | [2026-08-24-t01-2-keycloak-verified-identity-binding.md](2026-08-24-t01-2-keycloak-verified-identity-binding.md) |
+
+---
+
+## Portal 商业 UI 系列（U00–U08，2026-08-25 新增）
+
+> 背景：2026-08-25 架构审计确认 Stage-1 计划语料零前端工作、T87 主链路 UI 无人交付（P1-1）。本系列填补该缺口，索引见 [2026-08-25-portal-ui-index.md](2026-08-25-portal-ui-index.md)。
+
+- U00–U08 的 GitHub issue 待创建（#122 起），创建后回填各计划 Spec 行，并登记为 T87（#88）/T88（#89）的 blocker。
+- T01.1（#100）已被 F01 收窄取代，本索引保留其历史行；请勿执行历史版本，改执行 F01–F05（见 [2026-08-24-t01-1-platform-scaffold-test-harness.md](2026-08-24-t01-1-platform-scaffold-test-harness.md) 顶部标注与 [2026-08-24-admin-foundation-index.md](2026-08-24-admin-foundation-index.md)）。
+
+## P0 Gate 类计划重写（2026-08-25）
+
+> 2026-08-25 审计 H1/H2：P0 Gate 计划被压缩成"目标句验收"，不可执行。T38/T68/T72/T79/T81/T88 已按 [2026-08-25-p0-gate-template.md](2026-08-25-p0-gate-template.md) 重写为「case 矩阵 + 机械判据 + 证据 schema + 四方批准」。执行时以新版为准；T72 已修复 TenantID 缺失（H4）。

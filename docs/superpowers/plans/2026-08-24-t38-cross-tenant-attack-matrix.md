@@ -1,250 +1,93 @@
-# T38 Cross-Tenant Attack Matrix Implementation Plan
+# T38 Cross-Tenant Attack Matrix Production Gate Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> 模板：[2026-08-25-p0-gate-template.md](2026-08-25-p0-gate-template.md)。本计划按模板重写（2026-08-25），替代旧版"目标句验收"写法。
 
-**Goal:** 验证数据库、向量、任务、缓存、身份和 Product Route 的跨 Tenant 防御。
+**Goal:** 以可执行攻击矩阵证明数据库、向量、后台任务、缓存、身份头、Product Route 与 Object Store 的跨 Tenant 防御全部 fail closed，并产出机械可判的逐 case 证据。
 
-**Architecture:** Implement this Ticket as one vertical slice in `internal/weknora` and prove it through the Production Gate evidence case under `tests/production-gates`. Platform PostgreSQL remains the business source of truth; external systems are reached only through typed Provider/Adapter ports, and the test seam records reproducible evidence without customer content.
+**Gate 身份:** 基线 §25「Tenant Isolation」「Cross-Tenant Security」；ADR-0008、ADR-0009、ADR-0044；dossier T86.9（WeKnora Shared Security）。**gate_id: t38-cross-tenant-security**。
 
-**Tech Stack:** Go services and test harnesses, PostgreSQL, Docker Compose for development and controlled-beta verification, WeKnora, Higress
+**Architecture:** 本 Gate 是**测试资产 + 证据产品**，不是业务服务：`tests/production-gates/drivers/t38.go` 加载 YAML 场景矩阵，对每个 case 用 attacker/victim 两个真实 fixture Tenant 执行攻击动作，断言 §3.2 期望值，逐 case 记录证据（`docs/evidence/gates/t38-cross-tenant-security/<run-id>.yaml`）。harness 前置：`tests/platformtest`（issue #100 / F01–F05 重建）。
 
-**Spec:** [GitHub Issue #39](https://github.com/1123786563/myqypt/issues/39), `docs/architecture/architecture-baseline-risk-assessment-v1.1.md`, `CONTEXT.md`, `docs/adr/0008-require-weknora-shared-tenancy-hardening-before-paid-launch.md`, `docs/adr/0009-forbid-cross-tenant-product-object-sharing.md`, `docs/adr/0044-make-p0-production-gates-non-waivable.md`
+**Tech Stack:** Go test harness、PostgreSQL（RLS 校验）、WeKnora Shared Cell、Higress、Object Storage stub
+
+**Spec:** [GitHub Issue #39](https://github.com/1123786563/myqypt/issues/39)、docs/architecture/architecture-baseline-risk-assessment-v1.1.md §11/§25、ADR-0008、ADR-0009、ADR-0044、2026-08-25-p0-gate-template.md
 
 ## Global Constraints
 
-- Stage 1 is a public multi-tenant SaaS in one mainland-China Region for 100 paid Tenants, 1,000 monthly active Users, 100 concurrent AI requests, and 50 control-plane RPS.
-- Tenant is the hard security, data, and billing boundary; do not add `Organization` to Platform contracts and do not permit Cross-Tenant Sharing of Product Domain Objects.
-- Billing Customer and Tenant remain exactly one-to-one; `actor_user_id` never replaces `tenant_id` as the billing boundary.
-- Product Domain Objects and Product-internal Roles remain Product-owned; Platform code integrates through Product-specific Adapter contracts.
-- Secrets, raw prompts, document bodies, raw payment payloads, and sensitive personal information must not enter logs, traces, metrics, Audit, Usage metadata, fixtures, or evidence.
-- Docker Compose is limited to development, CI, integration, and at most 10 controlled-beta Tenants; paid production uses multi-node Kubernetes and multi-AZ or managed stateful services.
-- Target monthly Control Plane / Gateway availability is 99.9%; Platform metadata and billing-fact RPO is at most 15 minutes, Product-data RPO at most one hour, and overall RTO at most four hours.
-- A focused unit test, health endpoint, static audit, successful Workflow, or smoke test does not substitute for the named acceptance, conformance, or Production Gate seam.
-- Blockers from the issue graph must be complete before implementation: - #24 — T23 Header 清洗与 Product 直连阻断 - #35 — T34 Repository TenantScope - #36 — T35 Vector TenantScope - #37 — T36 Tenant 级后台任务公平性 - #38 — T37 Product 原子配额 Reservation
+- 每个 case 使用独立 fixture：attacker Tenant A 与 victim Tenant B 各含知识库/向量/任务/缓存数据；case 之间不共享状态。
+- 期望值全部机械可判（状态码、absence_of 字段、时延上界）；禁止自然语言 expect。
+- 任一 case fail/blocked ⇒ Gate blocked；skipped 不计入通过（ADR-0044）。
+- 证据必须含环境指纹（K8s/WeKnora/patchset/PostgreSQL 版本 digest）；缺失即 blocked。
+- 不引入真实客户数据；fixture 内容为合成文档。
+
+---
+
+## Case Matrix
+
+| case_id | 攻击/条件向量 | 防御层 | 具体动作 | 期望可观察结果 | 严重度 |
+| --- | --- | --- | --- | --- | --- |
+| CASE-01 | ID-only 仓储访问 | Repository TenantScope（T34） | A 以 victim B 的知识库全局 ID 调用列表/读取 API | 403/404；响应体 absence_of [B 的 kb_id, B 的任何对象] | P0 |
+| CASE-02 | 数据库直查越权 | PostgreSQL RLS（基线 §11.2） | 以 A 的 DB 角色执行跨 tenant SELECT（含 B 的 tenant_id） | 0 行返回；不报错泄露列结构 | P0 |
+| CASE-03 | 向量无 tenant 过滤 | Vector TenantScope（T35） | A 发起含 B 的向量 id / 无 tenant filter 的检索 | 结果 absence_of [B 的 chunk 文本]；空结果或仅 A 数据 | P0 |
+| CASE-04 | 后台任务饥饿 | Tenant 级公平调度（T36） | A 提交 N 个大 ingest 任务，观察 B 的任务推进 | B 的任务在限定时间内完成/推进；A 不独占 worker 并发 | P1 |
+| CASE-05 | 配额预留非原子 | 原子配额 Reservation（T37） | A 并发发起超过配额上限的预留请求 | 只有 ≤ 配额的成功数；无超额分配 | P0 |
+| CASE-06 | 缓存键越权 | Tenant-scoped cache key（基线 §11.4） | A 读取以 B 的 key 构造的缓存条目 | miss 或返回 A 自己数据；absence_of [B 数据] | P1 |
+| CASE-07 | 伪造身份头 | 可信边缘头清洗（T23） | A 伪造 X-Tenant-ID / 内部身份 Header 直达 Product Route | 头被剥离；请求按 A 的真实 TenantScope 处理或 403 | P0 |
+| CASE-08 | Product Route 跨 binding | Platform Context audience 校验（T22/T23） | A 携带 B 的 product_binding_id 访问 Product Route | 403（audience/scope 不匹配）；无 B 数据 | P0 |
+| CASE-09 | Object Store 键枚举 | Tenant-scoped 对象键 + 签名访问（抽取设计 §7.4） | A 猜测/枚举 B 的存储 key 并发起访问 | 403/404；absence_of [B 对象内容] | P1 |
+| CASE-10 | RBAC 只记不拒 | 生产 RBAC enforce 模式（基线 §11.6） | 验证 WeKnora RBAC 配置非 logging-only | 配置断言：enforce=true；无"仅记录"路径 | P0 |
+| CASE-11 | Platform Key 冒充用户 | System Admin/Key 爆炸半径（基线 §11.7） | 用 Platform Key 尝试以普通 User 身份执行租户操作 | 拒绝；无静默 impersonation；产生 Audit 事件 | P0 |
+| CASE-12 | 撤销后访问残留 | 立即撤权（T09） | B 撤销 A 的 Product Access 后，A 立即重放请求 | 403（fail closed）；无 5 分钟宽限 | P0 |
+
+## 机械判据
+
+- 逐 case：`expect.status`、`expect.absence_of`（响应体/日志 JSON 路径级校验）、`expect.presence_of`（如 Audit 事件 id）、`max_ms`（CASE-04/12 时延上界）。
+- Gate 级：CASE-01/02/03/05/07/08/11/12 任一 fail ⇒ blocked（P0）；CASE-04/06/09 任一 fail ⇒ blocked（P1 属 Gate 覆盖面，不允许跳过）。
+- 日志/证据不得出现 victim 数据、Prompt、Secret（基线 §20）。
+
+## 证据与批准
+
+- 运行产出 `docs/evidence/gates/t38-cross-tenant-security/<run-id>.yaml`，字段按模板 §3.4（fingerprint 必填：k8s、weknora、patchset、postgres digest）。
+- 四方批准（ADR-0044）：platform_engineering/security/finance_billing/product，各自 reviewer + approved + rationale + manifest_sha256；审批人不得是证据生成者。
+
+## Fail-Closed 语义
+
+- OpenFGA/Keycloak/PostgreSQL 任一依赖不可用 ⇒ 保护类 case blocked，不降级；
+- 任一 case 证据引用缺失或 fingerprint 缺失 ⇒ blocked。
 
 ---
 
 ## File Structure
 
-- Create `internal/weknora/cross-tenant-attack-matrix/service.go` for the feature command, result, validation, transaction boundary, and typed outbound port.
-- Create `internal/weknora/cross-tenant-attack-matrix/service_test.go` for the focused red/green contract and invariant tests.
-- Create `tests/production-gates/scenarios/t38-cross-tenant-attack-matrix.yaml` for the normal and denial/failure scenario expressed at the highest practical seam.
-- Create `tests/production-gates/t38_cross_tenant_attack_matrix_test.go` to execute the scenario and emit a content-minimized evidence report.
-- Keep Product-owned types outside Platform packages; translate them only inside this feature's typed outbound port.
+- Create `tests/production-gates/scenarios/t38-cross-tenant-attack-matrix.yaml`（12 个 case 的完整场景契约）
+- Create `tests/production-gates/drivers/t38.go`（矩阵执行器：逐 case 攻击 → 断言 → 证据）
+- Create `tests/production-gates/drivers/t38_test.go`（driver 自身契约测试）
+- Create `docs/evidence/gates/t38-cross-tenant-security/README.md`（证据目录约定 + 生成说明）
 
-### Task 1: Deliver T38 as one testable vertical slice
+### Task 1: 场景契约与 driver 骨架
 
-**Files:**
-- Create: `internal/weknora/cross-tenant-attack-matrix/service.go`
-- Create: `internal/weknora/cross-tenant-attack-matrix/service_test.go`
-- Create: `tests/production-gates/scenarios/t38-cross-tenant-attack-matrix.yaml`
-- Create: `tests/production-gates/t38_cross_tenant_attack_matrix_test.go`
+- [ ] **Step 1: 写失败用例（场景文件不存在）**：`go test ./tests/production-gates/drivers -run T38 -count=1` → FAIL（driver 不存在）。
+- [ ] **Step 2: 建场景 YAML**：按 Case Matrix 写 12 个 case；每个 case 含 attacker/victim fixture 描述、动作、expect（status/absence_of/presence_of/max_ms）。
+- [ ] **Step 3: 实现 driver**：加载场景 → 对每个 case 执行动作 → 收集断言结果 → 写 `docs/evidence/gates/.../` 证据 YAML；断言失败即该 case fail。
+- [ ] **Step 4: 提交**：git commit -m "test(gates): t38 cross-tenant attack matrix driver and scenario"
 
-**Interfaces:**
-- Consumes: `platformtest.Run(t *testing.T, scenarioPath string) platformtest.Report`, `Tx.Run(ctx context.Context, fn func(context.Context) error) error`, and completed blocker contracts listed above.
-- Produces: `CrossTenantAttackMatrixCommand{EnvironmentID string, AttackerTenantID string, VictimTenantID string, AttackCase string, IdempotencyKey string}`, `NewCrossTenantAttackMatrixService(tx Tx, port CrossTenantAttackMatrixPort, evidence EvidenceSink) *CrossTenantAttackMatrixService`, and `(*CrossTenantAttackMatrixService).Execute(ctx context.Context, cmd CrossTenantAttackMatrixCommand) (CrossTenantAttackMatrixResult, error)`.
-- Guarantees: idempotency key and `EnvironmentID` are mandatory; invalid scope is rejected before the outbound port; accepted execution writes one content-minimized evidence record.
+### Task 2: 在受控环境跑真实矩阵
 
-- [ ] **Step 1: Write the failing focused contract test**
+- [ ] **Step 1: 环境准备**：Compose 起 attacker/victim 双租户 WeKnora Shared Cell + Higress + PostgreSQL（RLS 开启），记录 fingerprint。
+- [ ] **Step 2: 全量运行**：`go test ./tests/production-gates/drivers -run T38 -count=1 -v`；修复真实缺陷（属 T23/T34/T35/T36/T37 的缺陷回退对应 ticket）。
+- [ ] **Step 3: 产出证据**：确认 <run-id>.yaml 含 12 个 case 的 pass 记录 + fingerprint + 无敏感内容。
+- [ ] **Step 4: 提交证据**：git add docs/evidence/gates/t38-cross-tenant-security && git commit -m "evidence(gates): t38 run-<run-id> all cases pass"
 
-```go
-package crosstenantattackmatrix_test
+### Task 3: 四方批准
 
-import (
-    "context"
-    "errors"
-    "testing"
-
-    feature "github.com/1123786563/myqypt/internal/weknora/cross-tenant-attack-matrix"
-)
-
-type recordingPort struct{ calls int }
-
-func (p *recordingPort) Apply(_ context.Context, _ feature.CrossTenantAttackMatrixCommand) (feature.CrossTenantAttackMatrixResult, error) {
-    p.calls++
-    return feature.CrossTenantAttackMatrixResult{ResourceID: "resource-a", Outcome: "accepted"}, nil
-}
-
-type inMemoryTx struct{}
-
-func (inMemoryTx) Run(ctx context.Context, fn func(context.Context) error) error {
-    return fn(ctx)
-}
-
-type memoryEvidence struct{ records int }
-
-func (m *memoryEvidence) Record(_ context.Context, _, _, _ string) error {
-    m.records++
-    return nil
-}
-
-func TestCrossTenantAttackMatrixRejectsInvalidScopeBeforeSideEffects(t *testing.T) {
-    port := &recordingPort{}
-    service := feature.NewCrossTenantAttackMatrixService(inMemoryTx{}, port, &memoryEvidence{})
-
-    _, err := service.Execute(context.Background(), feature.CrossTenantAttackMatrixCommand{
-        EnvironmentID: "",
-        IdempotencyKey: "t38-guard",
-    })
-
-    if !errors.Is(err, feature.ErrEnvironmentRequired) {
-        t.Fatalf("expected %v, got %v", feature.ErrEnvironmentRequired, err)
-    }
-    if port.calls != 0 {
-        t.Fatalf("outbound port called %d times", port.calls)
-    }
-}
-```
-
-- [ ] **Step 2: Run the focused test and confirm the red state**
-
-Run: `go test ./internal/weknora/cross-tenant-attack-matrix -run TestCrossTenantAttackMatrixRejectsInvalidScopeBeforeSideEffects -count=1`
-
-Expected: FAIL because `NewCrossTenantAttackMatrixService`, `CrossTenantAttackMatrixCommand`, and `ErrEnvironmentRequired` do not exist.
-
-- [ ] **Step 3: Add the typed contract and validation before any side effect**
-
-```go
-package crosstenantattackmatrix
-
-import (
-    "context"
-    "errors"
-)
-
-var (
-    ErrEnvironmentRequired = errors.New("production-shaped environment is required")
-    ErrIdempotencyKeyRequired = errors.New("idempotency key is required")
-)
-
-type CrossTenantAttackMatrixCommand struct {
-    EnvironmentID string
-    AttackerTenantID string
-    VictimTenantID string
-    AttackCase string
-    IdempotencyKey string
-}
-
-type CrossTenantAttackMatrixResult struct {
-    ResourceID string
-    Outcome    string
-}
-
-type CrossTenantAttackMatrixPort interface {
-    Apply(context.Context, CrossTenantAttackMatrixCommand) (CrossTenantAttackMatrixResult, error)
-}
-
-type Tx interface {
-    Run(context.Context, func(context.Context) error) error
-}
-
-type EvidenceSink interface {
-    Record(context.Context, string, string, string) error
-}
-```
-
-- [ ] **Step 4: Implement the minimal transactional service**
-
-```go
-type CrossTenantAttackMatrixService struct {
-    tx       Tx
-    port     CrossTenantAttackMatrixPort
-    evidence EvidenceSink
-}
-
-func NewCrossTenantAttackMatrixService(tx Tx, port CrossTenantAttackMatrixPort, evidence EvidenceSink) *CrossTenantAttackMatrixService {
-    return &CrossTenantAttackMatrixService{tx: tx, port: port, evidence: evidence}
-}
-
-func (s *CrossTenantAttackMatrixService) Execute(ctx context.Context, cmd CrossTenantAttackMatrixCommand) (result CrossTenantAttackMatrixResult, err error) {
-    if cmd.EnvironmentID == "" {
-        return CrossTenantAttackMatrixResult{}, ErrEnvironmentRequired
-    }
-    if cmd.IdempotencyKey == "" {
-        return CrossTenantAttackMatrixResult{}, ErrIdempotencyKeyRequired
-    }
-    err = s.tx.Run(ctx, func(txCtx context.Context) error {
-        applied, applyErr := s.port.Apply(txCtx, cmd)
-        if applyErr != nil {
-            return applyErr
-        }
-        result = applied
-        return s.evidence.Record(txCtx, cmd.IdempotencyKey, result.ResourceID, result.Outcome)
-    })
-    return result, err
-}
-```
-
-The concrete `CrossTenantAttackMatrixPort.Apply` implementation in this file must enforce the Ticket invariant: **验证数据库、向量、任务、缓存、身份和 Product Route 的跨 Tenant 防御。**. It must return a stable classified error for the negative path and persist external IDs before retryable work continues.
-
-- [ ] **Step 5: Run focused tests for validation, success, retry, and duplicate delivery**
-
-Run: `go test ./internal/weknora/cross-tenant-attack-matrix -run 'CrossTenantAttackMatrix' -count=1`
-
-Expected: PASS; the success case produces one business effect and one evidence record, while invalid scope, repeated idempotency keys, and injected port failure produce no duplicate effect.
-
-- [ ] **Step 6: Add the highest-seam scenario**
-
-```yaml
-id: t38-cross-tenant-attack-matrix
-issue: 39
-batch: P19
-seam: Production Gate evidence case
-scope:
-  environment_id: prod-shaped-a
-idempotency_key: t38-acceptance
-normal:
-  expect: "验证数据库、向量、任务、缓存、身份和 Product Route 的跨 Tenant 防御。"
-  side_effect_count: 1
-  evidence_content_minimized: true
-guard:
-  mutation: remove_required_scope_or_inject_dependency_failure
-  expect_error_class: denied_or_retryable
-  side_effect_count: 0
-replay:
-  deliveries: 2
-  final_business_effect_count: 1
-```
-
-- [ ] **Step 7: Run the named seam and preserve evidence**
-
-```go
-package production-gates_test
-
-import (
-    "testing"
-
-    "github.com/1123786563/myqypt/tests/platformtest"
-)
-
-func TestT38CrossTenantAttackMatrix(t *testing.T) {
-    report := platformtest.Run(t, "tests/production-gates/scenarios/t38-cross-tenant-attack-matrix.yaml")
-    if !report.Passed {
-        t.Fatalf("T38 evidence failed: %s", report.Summary)
-    }
-}
-```
-
-Run: `go test ./tests/production-gates -run TestT38CrossTenantAttackMatrix -count=1`
-
-Expected: PASS and a versioned report under `artifacts/evidence/t38/` containing scenario ID, source revision, dependency versions, timestamps, assertions, and redacted references. Do not commit runtime evidence containing customer or secret material.
-
-- [ ] **Step 8: Run the domain regression suite**
-
-Run: `go test ./internal/weknora/cross-tenant-attack-matrix ./tests/production-gates -count=1`
-
-Expected: PASS with no skipped T38 scenario.
-
-- [ ] **Step 9: Commit the independently reviewable slice**
-
-```bash
-git add internal/weknora/cross-tenant-attack-matrix/service.go internal/weknora/cross-tenant-attack-matrix/service_test.go tests/production-gates/scenarios/t38-cross-tenant-attack-matrix.yaml tests/production-gates/t38_cross_tenant_attack_matrix_test.go
-git commit -m "feat(weknora): deliver T38 cross-tenant-attack-matrix"
-```
+- [ ] **Step 1:** 生成 manifest_sha256（对证据目录所有文件求哈希）。
+- [ ] **Step 2:** 四方在 issue #39 评论各自 approve/block + rationale（审批人 ≠ 证据生成者）。
+- [ ] **Step 3:** 四方全通过 ⇒ 在证据 YAML 填 approval 字段并提交；否则按 blocked 记录并回退修复。
 
 ## Self-Review Record
 
-- Spec coverage: the normal, guard/failure, retry/idempotency, evidence, and domain-boundary requirements from Issue #39 are each mapped to Steps 1, 4, 5, 6, and 7.
-- Placeholder scan: this plan contains no deferred implementation markers or unspecified error-handling steps.
-- Type consistency: `CrossTenantAttackMatrixCommand`, `CrossTenantAttackMatrixResult`, `CrossTenantAttackMatrixPort`, constructor, and `Execute` signatures are identical in the interface, test, and implementation snippets.
-- Right-sizing: one vertical slice, one red/green cycle, one highest-seam gate, and one review commit; no nested sub-Issue is required.
+- Spec coverage: 12 个 case 覆盖基线 §11 全部阻断项（ID-only/RLS/向量/任务/配额/缓存/头清洗/RBAC/Key 爆炸/撤权）。
+- Placeholder scan: 无目标句 expect；每 case 有具体状态码/absence_of/presence_of。
+- Type consistency: gate_id 与 T88 聚合键一致；证据 schema 遵循模板 §3.4。
+- Right-sizing: Gate 是测试资产；未引入 Command 服务。
