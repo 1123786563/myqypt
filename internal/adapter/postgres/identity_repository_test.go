@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"database/sql"
+	"maps"
 	"os"
 	"slices"
 	"sync"
@@ -167,6 +168,202 @@ func TestSameSubjectDifferentIssuersAreDistinctUsers(t *testing.T) {
 	assertUserRows(t, ctx, db, providerB, subject, 1)
 }
 
+// TestFirstBindProvisionsPersonalTenantBundle proves the T02 invariant on
+// the create path: the first delivery of a new identity creates the user,
+// its binding, and the complete personal-tenant bundle — one personal
+// tenant, its 1:1 billing customer, and the active owner membership — in
+// the same transaction.
+func TestFirstBindProvisionsPersonalTenantBundle(t *testing.T) {
+	pool, db := openIdentityTestDB(t)
+	repo := postgres.NewIdentityRepository(pool)
+	ctx := context.Background()
+
+	const provider = "https://issuer-provision.test"
+	const subject = "subject-provision-1"
+
+	user, created, err := repo.BindOrLoad(ctx, provider, subject)
+	if err != nil {
+		t.Fatalf("first BindOrLoad: %v", err)
+	}
+	if !created {
+		t.Fatal("first BindOrLoad created = false, want true on the insert path")
+	}
+	if user.ID == "" {
+		t.Fatal("first BindOrLoad returned an empty user id")
+	}
+
+	assertBindingRows(t, ctx, db, provider, subject, 1)
+	assertUserRows(t, ctx, db, provider, subject, 1)
+	assertPersonalTenantBundle(t, ctx, db, provider, subject, 1)
+}
+
+// TestReplayedBindKeepsSingleTenantBundle proves the idempotency path:
+// replaying the same identity takes the load path and never provisions a
+// second bundle.
+func TestReplayedBindKeepsSingleTenantBundle(t *testing.T) {
+	pool, db := openIdentityTestDB(t)
+	repo := postgres.NewIdentityRepository(pool)
+	ctx := context.Background()
+
+	const provider = "https://issuer-replay-bundle.test"
+	const subject = "subject-replay-bundle-1"
+
+	first, created, err := repo.BindOrLoad(ctx, provider, subject)
+	if err != nil {
+		t.Fatalf("first BindOrLoad: %v", err)
+	}
+	if !created {
+		t.Fatal("first BindOrLoad created = false, want true on the insert path")
+	}
+
+	second, createdAgain, err := repo.BindOrLoad(ctx, provider, subject)
+	if err != nil {
+		t.Fatalf("replayed BindOrLoad: %v", err)
+	}
+	if createdAgain {
+		t.Fatal("replayed BindOrLoad created = true, want false on the load path")
+	}
+	if first.ID != second.ID {
+		t.Fatalf("replayed BindOrLoad user ids differ: %q vs %q", first.ID, second.ID)
+	}
+
+	assertPersonalTenantBundle(t, ctx, db, provider, subject, 1)
+}
+
+// TestSeparateIdentitiesGetSeparatePersonalTenants proves cross-identity
+// isolation: every newly created user provisions its own tenant bundle,
+// and no bundle row is ever shared between two identities.
+func TestSeparateIdentitiesGetSeparatePersonalTenants(t *testing.T) {
+	pool, db := openIdentityTestDB(t)
+	repo := postgres.NewIdentityRepository(pool)
+	ctx := context.Background()
+
+	const provider = "https://issuer-isolate-bundle.test"
+	const subjectA = "subject-isolate-bundle-a"
+	const subjectB = "subject-isolate-bundle-b"
+
+	userA, _, err := repo.BindOrLoad(ctx, provider, subjectA)
+	if err != nil {
+		t.Fatalf("BindOrLoad subject A: %v", err)
+	}
+	userB, _, err := repo.BindOrLoad(ctx, provider, subjectB)
+	if err != nil {
+		t.Fatalf("BindOrLoad subject B: %v", err)
+	}
+	if userA.ID == userB.ID {
+		t.Fatalf("distinct subjects mapped to the same user %q", userA.ID)
+	}
+
+	assertPersonalTenantBundle(t, ctx, db, provider, subjectA, 1)
+	assertPersonalTenantBundle(t, ctx, db, provider, subjectB, 1)
+}
+
+// TestConcurrentBindProvisionsExactlyOneTenantBundle proves the
+// concurrency invariant: the advisory xact lock serializes concurrent
+// first deliveries of one identity, so exactly one transaction provisions
+// the bundle and the rest load it.
+func TestConcurrentBindProvisionsExactlyOneTenantBundle(t *testing.T) {
+	pool, db := openIdentityTestDB(t)
+	repo := postgres.NewIdentityRepository(pool)
+	ctx := context.Background()
+
+	const provider = "https://issuer-concurrent-bundle.test"
+	const subject = "subject-concurrent-bundle-1"
+
+	const goroutines = 16
+	users := make([]identity.User, goroutines)
+	createdFlags := make([]bool, goroutines)
+	errs := make([]error, goroutines)
+
+	var wg sync.WaitGroup
+	for i := range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			users[i], createdFlags[i], errs[i] = repo.BindOrLoad(ctx, provider, subject)
+		}()
+	}
+	wg.Wait()
+
+	createdCount := 0
+	for i := range users {
+		if errs[i] != nil {
+			t.Fatalf("goroutine %d BindOrLoad: %v", i, errs[i])
+		}
+		if users[i].ID == "" {
+			t.Fatalf("goroutine %d returned an empty user id", i)
+		}
+		if users[i].ID != users[0].ID {
+			t.Fatalf("goroutine %d user id = %q, want %q", i, users[i].ID, users[0].ID)
+		}
+		if createdFlags[i] {
+			createdCount++
+		}
+	}
+	if createdCount != 1 {
+		t.Fatalf("created flags = %d true among %d deliveries, want exactly 1", createdCount, goroutines)
+	}
+
+	assertPersonalTenantBundle(t, ctx, db, provider, subject, 1)
+}
+
+// TestBindFailureDuringProvisioningRollsBackAllRows proves the atomicity
+// invariant with a fault injected mid-provisioning: a BEFORE INSERT
+// trigger on memberships (the last provisioning statement of the create
+// path) raises, so BindOrLoad must fail and leave zero rows for the
+// identity across all five tables — the user and binding roll back with
+// the tenant bundle. Dropping the trigger afterwards must leave the
+// identity free to provision successfully.
+func TestBindFailureDuringProvisioningRollsBackAllRows(t *testing.T) {
+	pool, db := openIdentityTestDB(t)
+	repo := postgres.NewIdentityRepository(pool)
+	ctx := context.Background()
+
+	const provider = "https://issuer-atomic-bundle.test"
+	const subject = "subject-atomic-bundle-1"
+
+	mustExec(t, ctx, db, `
+		CREATE FUNCTION t02_raise_on_membership_insert() RETURNS trigger AS $$
+		BEGIN
+			RAISE EXCEPTION 'injected provisioning failure';
+		END;
+		$$ LANGUAGE plpgsql`)
+	mustExec(t, ctx, db, `
+		CREATE TRIGGER t02_fail_membership_insert
+		BEFORE INSERT ON memberships
+		FOR EACH ROW EXECUTE FUNCTION t02_raise_on_membership_insert()`)
+	t.Cleanup(func() {
+		mustExec(t, ctx, db, `DROP TRIGGER IF EXISTS t02_fail_membership_insert ON memberships`)
+		mustExec(t, ctx, db, `DROP FUNCTION IF EXISTS t02_raise_on_membership_insert()`)
+	})
+
+	before := countAllBusinessRows(t, ctx, db)
+
+	_, _, err := repo.BindOrLoad(ctx, provider, subject)
+	if err == nil {
+		t.Fatal("BindOrLoad succeeded despite the injected membership failure, want an error")
+	}
+
+	assertBindingRows(t, ctx, db, provider, subject, 0)
+	assertUserRows(t, ctx, db, provider, subject, 0)
+	assertPersonalTenantBundle(t, ctx, db, provider, subject, 0)
+	if after := countAllBusinessRows(t, ctx, db); !maps.Equal(after, before) {
+		t.Fatalf("business row totals changed after the failed bind: before=%v after=%v", before, after)
+	}
+
+	mustExec(t, ctx, db, `DROP TRIGGER t02_fail_membership_insert ON memberships`)
+	mustExec(t, ctx, db, `DROP FUNCTION t02_raise_on_membership_insert()`)
+
+	user, created, err := repo.BindOrLoad(ctx, provider, subject)
+	if err != nil {
+		t.Fatalf("BindOrLoad after removing the injected failure: %v", err)
+	}
+	if !created || user.ID == "" {
+		t.Fatalf("BindOrLoad after restore created=%t user id empty=%t, want a fresh create", created, user.ID == "")
+	}
+	assertPersonalTenantBundle(t, ctx, db, provider, subject, 1)
+}
+
 func TestIdentitySchemaHasNoCascadeOrMutableKeyColumns(t *testing.T) {
 	_, db := openIdentityTestDB(t)
 	ctx := context.Background()
@@ -295,4 +492,113 @@ func assertUserRows(t *testing.T, ctx context.Context, db *sql.DB, provider, sub
 	if got != want {
 		t.Fatalf("platform_users rows for (%s, %s) = %d, want %d", provider, subject, got, want)
 	}
+}
+
+// tenantBundleRow is one observed provisioning row for the users bound to
+// an identity: a tenant with its (left-joined) billing customer and
+// memberships, so a single query exposes both the row counts and the
+// exact shape of the T02 invariants.
+type tenantBundleRow struct {
+	kind             string
+	hasBilling       bool
+	billingPaired    bool
+	membershipRole   sql.NullString
+	membershipStatus sql.NullString
+	membershipIsUser bool
+}
+
+// loadTenantBundleRows returns one row per (tenant, billing customer,
+// membership) combination owned by the users bound to the identity.
+func loadTenantBundleRows(t *testing.T, ctx context.Context, db *sql.DB, provider, subject string) []tenantBundleRow {
+	t.Helper()
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT
+			t.kind,
+			(bc.tenant_id IS NOT NULL) AS has_billing,
+			(bc.tenant_id = t.id) AS billing_paired,
+			m.role AS membership_role,
+			m.status AS membership_status,
+			(m.user_id = t.owner_user_id) AS membership_is_owner
+		FROM tenants t
+		LEFT JOIN billing_customers bc ON bc.tenant_id = t.id
+		LEFT JOIN memberships m ON m.tenant_id = t.id
+		WHERE t.owner_user_id IN (
+			SELECT platform_user_id
+			FROM identity_bindings
+			WHERE identity_provider = $1 AND subject = $2
+		)`,
+		provider, subject)
+	if err != nil {
+		t.Fatalf("query tenant bundle rows: %v", err)
+	}
+	defer rows.Close()
+
+	var got []tenantBundleRow
+	for rows.Next() {
+		var r tenantBundleRow
+		if err := rows.Scan(&r.kind, &r.hasBilling, &r.billingPaired, &r.membershipRole, &r.membershipStatus, &r.membershipIsUser); err != nil {
+			t.Fatalf("scan tenant bundle row: %v", err)
+		}
+		got = append(got, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate tenant bundle rows: %v", err)
+	}
+	return got
+}
+
+// assertPersonalTenantBundle asserts the complete T02 provisioning shape
+// for one identity: exactly wantBundles tenants, each a personal tenant
+// carrying its 1:1 billing customer and its active owner membership held
+// by the bound user itself.
+func assertPersonalTenantBundle(t *testing.T, ctx context.Context, db *sql.DB, provider, subject string, wantBundles int) {
+	t.Helper()
+
+	rows := loadTenantBundleRows(t, ctx, db, provider, subject)
+	if len(rows) != wantBundles {
+		t.Fatalf("tenant bundle rows for (%s, %s) = %d, want %d", provider, subject, len(rows), wantBundles)
+	}
+	for i, r := range rows {
+		if r.kind != "personal" {
+			t.Fatalf("bundle %d tenant kind = %q, want personal", i, r.kind)
+		}
+		if !r.hasBilling || !r.billingPaired {
+			t.Fatalf("bundle %d billing customer is not paired 1:1 with its tenant (present=%t paired=%t)", i, r.hasBilling, r.billingPaired)
+		}
+		if !r.membershipRole.Valid || r.membershipRole.String != "owner" {
+			t.Fatalf("bundle %d membership role = %v, want owner", i, r.membershipRole)
+		}
+		if !r.membershipStatus.Valid || r.membershipStatus.String != "active" {
+			t.Fatalf("bundle %d membership status = %v, want active", i, r.membershipStatus)
+		}
+		if !r.membershipIsUser {
+			t.Fatalf("bundle %d membership does not belong to the tenant's owning user", i)
+		}
+	}
+}
+
+// mustExec runs one statement, failing the test on error.
+func mustExec(t *testing.T, ctx context.Context, db *sql.DB, query string) {
+	t.Helper()
+	if _, err := db.ExecContext(ctx, query); err != nil {
+		t.Fatalf("exec %q: %v", query, err)
+	}
+}
+
+// countAllBusinessRows returns the total row count of the five business
+// tables, used to prove a failed bind changed nothing anywhere.
+func countAllBusinessRows(t *testing.T, ctx context.Context, db *sql.DB) map[string]int {
+	t.Helper()
+
+	tables := []string{"platform_users", "identity_bindings", "tenants", "billing_customers", "memberships"}
+	totals := make(map[string]int, len(tables))
+	for _, table := range tables {
+		var count int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil {
+			t.Fatalf("count %s rows: %v", table, err)
+		}
+		totals[table] = count
+	}
+	return totals
 }
