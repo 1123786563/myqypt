@@ -19,7 +19,13 @@ import (
 )
 
 const (
-	processStartupTimeout = 5 * time.Second
+	// processStartupTimeout is a readiness deadline, not a performance
+	// assertion: under the full-parallel package load of `go test ./...`
+	// (with TEST_DATABASE_URL set, so both process tests spawn real
+	// binaries) the address-file wait can transiently exceed a tight
+	// budget, so it stays generous while still bounding failure
+	// detection.
+	processStartupTimeout = 30 * time.Second
 	processRequestTimeout = 250 * time.Millisecond
 )
 
