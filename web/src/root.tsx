@@ -13,16 +13,27 @@ export const meta: MetaFunction = () => [
   },
 ]
 
-// 在首帧绘制前根据 ui-theme 偏好与系统配色设置暗色模式，避免主题闪烁（FOUC）。
+// 在首帧绘制前解析主题偏好，避免主题闪烁（FOUC）：版本化外观键
+// （myqypt.appearance.v1，含 theme/density/sidebarCollapsed）优先，
+// 回退到落地页仍在使用的 ui-theme，再回退系统配色。
 const themeInitScript = `
 ;(function () {
-  var stored = null
+  var preference = null
   try {
-    stored = localStorage.getItem('ui-theme')
+    var saved = JSON.parse(localStorage.getItem('myqypt.appearance.v1') || 'null')
+    if (saved && (saved.theme === 'light' || saved.theme === 'dark' || saved.theme === 'system')) {
+      preference = saved.theme
+    }
   } catch (_error) {}
+  if (preference === null) {
+    try {
+      var legacy = localStorage.getItem('ui-theme')
+      if (legacy === 'light' || legacy === 'dark') preference = legacy
+    } catch (_error) {}
+  }
   var theme =
-    stored === 'light' || stored === 'dark'
-      ? stored
+    preference === 'light' || preference === 'dark'
+      ? preference
       : window.matchMedia('(prefers-color-scheme: dark)').matches
         ? 'dark'
         : 'light'

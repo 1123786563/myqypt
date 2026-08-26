@@ -40,4 +40,24 @@ export default defineConfig([
       ],
     },
   },
+  {
+    // 组件双层边界（issue #107）：components/ui 是纯 shadcn 原语层，
+    // 禁止反向依赖 features、routes、API 客户端或会话模块。
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          // 按“路径段”匹配 features / routes 目录（相对导入与别名导入均命中），
+          // 以及 api-client / session 模块名。
+          patterns: [
+            {
+              regex: '(^|[/.])(?:features|routes|api-client|session)(?:/|$)',
+              message: 'UI 原语必须保持纯净：不得导入 features、routes、API 客户端或会话模块。',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ])
