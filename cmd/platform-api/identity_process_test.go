@@ -410,11 +410,20 @@ func identityProcessBaseURL(t *testing.T, binary string, env map[string]string) 
 		process.done <- command.Wait()
 	}()
 	t.Cleanup(func() {
-		if command.ProcessState == nil || !command.ProcessState.Exited() {
-			_ = command.Process.Kill()
-			if err := waitForProcess(process, processStartupTimeout); err != nil {
-				t.Logf("cleanup wait for platform-api: %v\n%s", err, output.String())
-			}
+		// Never read command.ProcessState here: the waiter goroutine
+		// above writes it inside command.Wait, and an unsynchronized
+		// read from this goroutine is a data race. Instead drain a
+		// completed wait (the receive establishes the happens-before
+		// edge with the waiter), kill unconditionally — killing an
+		// already-exited process returns a harmless error — and let
+		// waitForProcess select on the done channel.
+		select {
+		case <-process.done:
+		default:
+		}
+		_ = command.Process.Kill()
+		if err := waitForProcess(process, processStartupTimeout); err != nil {
+			t.Logf("cleanup wait for platform-api: %v\n%s", err, output.String())
 		}
 	})
 	address := waitForReportedAddress(t, process)
