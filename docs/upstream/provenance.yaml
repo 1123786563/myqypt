@@ -1,0 +1,58 @@
+# Upstream extraction provenance for myqypt.
+#
+# Validated by internal/architecture/provenance.go (schema_version 1, PROV-*
+# rules). The upstream baseline is fixed by the design spec
+# docs/superpowers/specs/2026-08-24-shadcn-admin-go-admin-extraction-design.md
+# §3; the extraction-mode semantics follow the Issue #105 implementation plan
+# (design ruling 1).
+#
+# The pinned commits are provenance records, not sync targets: any future
+# upstream change must be re-reviewed as a new diff and never merged over
+# these files.
+schema_version: 1
+sources:
+  - name: shadcn-admin
+    repository: https://github.com/satnaing/shadcn-admin
+    commit: e16c87f213a5ba5e45964e9b67c792105ec74d26
+    license: MIT
+    license_file: LICENSES/shadcn-admin-MIT.txt
+    extraction_mode: pattern-only
+    destinations: []
+    local_modifications:
+      - >-
+        Engineering-configuration organization adopted as ideas only (Vite,
+        TypeScript, ESLint, Prettier, Vitest + Playwright harness composition);
+        every file re-authored for this repository; zero verbatim copy.
+      - >-
+        Tailwind CSS 4 + shadcn CSS-variables theming approach (semantic
+        custom properties, oklch() values, .dark variant) re-implemented in
+        web/src/styles/app.css; zero verbatim copy.
+      - >-
+        Component conventions (composition over configuration, cva-based
+        variant APIs, data-slot markers, cn() class merging) applied to
+        authored components; zero verbatim copy.
+  - name: go-admin
+    repository: https://github.com/go-admin-team/go-admin
+    commit: 1b7dcd843ce38fddc8c280fe3139e02735cf7574
+    license: MIT
+    license_file: LICENSES/go-admin-MIT.txt
+    extraction_mode: pattern-only
+    destinations: []
+    local_modifications:
+      - >-
+        Gin router and HTTP middleware composition (request ID, panic
+        recovery, security response headers, CORS) adopted as ideas;
+        re-authored for this repository; zero verbatim copy.
+      - >-
+        Cobra multi-command organization (platform-api / platform-worker /
+        migrate / version command shapes) re-authored around an explicit
+        composition root; zero verbatim copy.
+      - >-
+        Process startup discipline (HTTP server timeouts, signal listening and
+        graceful shutdown, version-info injection, /livez and /readyz)
+        re-authored; zero verbatim copy.
+      - >-
+        Object-storage Adapter approach (cloud object-storage adapters as
+        environment-injected implementations behind an ObjectStore port)
+        adopted as an idea; no cloud SDK or adapter code carried over; zero
+        verbatim copy.
