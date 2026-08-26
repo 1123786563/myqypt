@@ -16,9 +16,11 @@ import (
 )
 
 // openIdentityTestDB connects to TEST_DATABASE_URL, applies every up
-// migration, and returns a pgx pool for the repository under test plus a
-// database/sql handle for row assertions. The skip guard mirrors
-// migrate_test.go: without TEST_DATABASE_URL these stay integration tests.
+// migration, truncates the five business tables so every run starts from
+// the same zero baseline, and returns a pgx pool for the repository under
+// test plus a database/sql handle for row assertions. The skip guard
+// mirrors migrate_test.go: without TEST_DATABASE_URL these stay
+// integration tests.
 func openIdentityTestDB(t *testing.T) (*pgxpool.Pool, *sql.DB) {
 	t.Helper()
 
@@ -38,6 +40,20 @@ func openIdentityTestDB(t *testing.T) (*pgxpool.Pool, *sql.DB) {
 	if err := postgres.Migrate(ctx, db, migrations.FS); err != nil {
 		db.Close()
 		t.Fatalf("migrate up: %v", err)
+	}
+
+	// Reset the business tables to a clean state: on a persistent
+	// database, identity rows survive TestMigrationRoundTrip's down-one
+	// (it only rolls back 000003), so repeated runs — any -count, or a
+	// second bare run — would otherwise collide with stale rows. All
+	// five tables are listed because TRUNCATE requires every table
+	// connected by foreign keys to be truncated together; uuid primary
+	// keys carry no sequences, so no RESTART IDENTITY is needed.
+	if _, err := db.ExecContext(ctx,
+		`TRUNCATE TABLE memberships, billing_customers, tenants, identity_bindings, platform_users`,
+	); err != nil {
+		db.Close()
+		t.Fatalf("truncate business tables: %v", err)
 	}
 
 	pool, err := pgxpool.New(ctx, databaseURL)
