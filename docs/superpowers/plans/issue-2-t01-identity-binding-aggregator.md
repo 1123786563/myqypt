@@ -30,7 +30,7 @@
    d. 若 JWKS 端点非标准形状导致 #101 verifier 无法消费，**停下报告**（这属于 #101 交付物缺陷，超出 #2 aggregator 范围，升级 controller 裁定）。
 7. **拒绝路径语义**：源计划 `remove_verified_claims: true` 在真实系统 = 验证必然失败的凭据。裁定至少覆盖：缺失 Authorization、`Bearer` + 篡改签名 token（对合法 token 签名段做确定位翻转）→ 均 401；不产生绑定行。
 8. **RED 先行**：先写 scenario + 测试（driver 未实现/栈未起）跑 `go test ./tests/acceptance -run TestT01IdentityBinding -count=1` 确认红；实现 driver 并起栈后转绿。`tests/acceptance` 目录当前不存在，属新包。
-9. **证据卫生**：#100 的 Report 已内建脱敏（非空 summary/details 一律替换为固定脱敏文案）。驱动额外义务：断言 details 只写状态码/行数等事实，绝不写 token、密码、用户档案；Casdoor 管理凭据只经环境变量/进程内存，不落任何被提交的文件；evidence 落 `artifacts/evidence/t01-identity-binding/`（gitignored）。
+9. **证据卫生**：#100 的 Report 已内建脱敏（非空 summary/details 一律替换为固定脱敏文案）。驱动额外义务：断言 details 只写状态码/行数等事实，绝不写 token、密码、用户档案；evidence 落 `artifacts/evidence/t01-identity-binding/`（gitignored）。凭据承载（修复轮 R1 裁定 A，2026-08-27）：一次性验收栈的 fixture 凭据（Casdoor 镜像公开默认管理口令、测试自造的 client secret/用户密码/DB 密码）允许作为 driver 常量默认值随仓库提交，条件是——全部可经 `T01_*` 环境变量覆盖、只在分钟级存活的临时栈内有效、绝非任何既有系统的真实凭据、且任何情况下不进证据/日志/断言 details。Casdoor 管理凭据的真实生产值仍然只经环境变量/进程内存。（原字面"管理凭据只经环境变量/进程内存，不落任何被提交的文件"按此修订；理由：镜像公开默认值 + 裁定 10 的固定集成命令形态不含额外 env，双审一致认定可接受。）
 10. **栈生命周期**：集成命令保持源计划形态 `docker compose -f deploy/compose/compose.yaml up -d --wait && go test ./tests/acceptance -run TestT01IdentityBinding -count=1`（`--wait` 依赖 healthcheck；platform-api 无 healthcheck 时裁定补一个 `/livez` CMD healthcheck）。driver 自身做可达性预检：栈不可达 → `t.Fatalf` 明确指因（不静默 skip；无 docker 时允许 `testing.Short()` 或显式 env gate 跳过并打印精确原因——选定后者：`T01_ACCEPTANCE_STACK=1` 之外的默认行为是 skip 并给出起栈命令，保证无栈环境 `go test ./...` 仍绿；集成运行时设置该变量）。
 
 ## 范围（Scope）
