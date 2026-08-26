@@ -22,7 +22,7 @@
 ## 非目标（Out of Scope）
 
 - 不修改 OpenAPI 契约（`api/openapi/platform.yaml`）与生成代码（`internal/transport/http/api/`）：中间件对契约路径透明。
-- 不修改 `web/`、`deploy/compose/`（现有 Keycloak 开发栈）、`deploy/compose.yaml`（F03 冒烟栈）。
+- 不修改 `web/`、`deploy/compose/`（现有 Casdoor 开发栈）、`deploy/compose.yaml`（F03 冒烟栈）。
 - 不修改系列计划文件 `2026-08-24-f04-*.md` 与其他 `2026-08-24-*.md`（sync 管辖）。
 - 不做审计流（ADR-0038 的独立 immutable Audit 流属后续 T 系列）、panic 值日志、限流、认证/授权、Higress 边缘策略（F20）、request-ID 之外的 header 校验。
 - 不引入全局 logger/tracer runtime（`slog.SetDefault`、otel global `otel.SetTracerProvider` 均禁止——AC5）。

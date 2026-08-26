@@ -53,7 +53,7 @@
 
 ## Fail-Closed 语义
 
-- OpenFGA/Keycloak/PostgreSQL 任一依赖不可用 ⇒ 保护类 case blocked，不降级；
+- OpenFGA/Casdoor/PostgreSQL 任一依赖不可用 ⇒ 保护类 case blocked，不降级；
 - 任一 case 证据引用缺失或 fingerprint 缺失 ⇒ blocked。
 
 ---

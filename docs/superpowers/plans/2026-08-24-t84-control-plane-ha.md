@@ -1,4 +1,4 @@
-# T84 Keycloak、OpenFGA、Temporal 与 Nacos HA Implementation Plan
+# T84 Casdoor、OpenFGA、Temporal 与 Nacos HA Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

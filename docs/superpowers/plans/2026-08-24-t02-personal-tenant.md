@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go services and test harnesses, PostgreSQL, Docker Compose for development and controlled-beta verification
 
-**Spec:** [GitHub Issue #3](https://github.com/1123786563/myqypt/issues/3), `docs/architecture/architecture-baseline-risk-assessment-v1.1.md`, `CONTEXT.md`, `docs/adr/0004-use-explicit-one-to-one-billing-customer-and-tenant-ownership.md`, `docs/adr/0013-separate-global-user-and-tenant-lifecycles.md`, `docs/adr/0024-separate-platform-users-from-keycloak-identities.md`
+**Spec:** [GitHub Issue #3](https://github.com/1123786563/myqypt/issues/3), `docs/architecture/architecture-baseline-risk-assessment-v1.1.md`, `CONTEXT.md`, `docs/adr/0004-use-explicit-one-to-one-billing-customer-and-tenant-ownership.md`, `docs/adr/0013-separate-global-user-and-tenant-lifecycles.md`, `docs/adr/0024-separate-platform-users-from-casdoor-identities.md`
 
 ## Global Constraints
 

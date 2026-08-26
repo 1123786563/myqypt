@@ -25,7 +25,7 @@
 
 - Platform 是面向个人与小企业的公共多租户 SaaS；
 - Tenant 是安全、数据、用量和计费的硬边界；
-- Keycloak 拥有登录身份，Platform 拥有 User、Membership 和 Product Access；
+- Casdoor 拥有登录身份，Platform 拥有 User、Membership 和 Product Access；
 - PostgreSQL 是 Membership、Platform Role 和 Product Access 的业务事实源；
 - OpenFGA 是授权投影和求值器；
 - Product 仅信任由可信边缘签发的短期、audience-bound Platform Context；
@@ -67,7 +67,7 @@ Go Transport
             v
 Application Modules
             |
-            +-- Identity port ------> Keycloak Adapter
+            +-- Identity port ------> Casdoor Adapter
             +-- Authorization port -> OpenFGA Adapter
             +-- Repository port ----> PostgreSQL Adapter
             +-- Workflow port ------> Temporal Adapter
@@ -203,9 +203,9 @@ shadcn 基础组件优先通过官方 CLI 生成干净版本。只有上游确�
 
 ### 7.1 Session Module
 
-浏览器不持有 Keycloak Access Token。Go Portal BFF 完成 OIDC Authorization Code 流程，并向浏览器签发 `HttpOnly + Secure + SameSite` Session Cookie。
+浏览器不持有 Casdoor Access Token。Go Portal BFF 完成 OIDC Authorization Code 流程，并向浏览器签发 `HttpOnly + Secure + SameSite` Session Cookie。
 
-Session Module 的 Interface 包含登录开始、回调完成、当前会话查询和登出。Keycloak 是生产 Adapter，测试使用内存 Identity Adapter。
+Session Module 的 Interface 包含登录开始、回调完成、当前会话查询和登出。Casdoor 是生产 Adapter，测试使用内存 Identity Adapter。
 
 ### 7.2 Tenant Authorization Module
 
@@ -233,8 +233,8 @@ Interface 只暴露平台需要的 `Put`、`Get`、`Delete` 和签名访问能�
 
 ```text
 React -> /portal-api/auth/login
-      -> Go BFF -> Keycloak
-Keycloak callback -> Go BFF
+      -> Go BFF -> Casdoor
+Casdoor callback -> Go BFF
       -> Session Cookie
 React -> /portal-api/session
       -> select tenant
@@ -277,7 +277,7 @@ Catalog publish transaction
 
 - Public API 使用稳定的 RFC Problem Details 结构；
 - 错误至少包含稳定 code、HTTP status、可展示 title、request/trace ID；
-- 不向客户端暴露数据库、Keycloak、OpenFGA、Temporal 或支付 Provider 原始错误；
+- 不向客户端暴露数据库、Casdoor、OpenFGA、Temporal 或支付 Provider 原始错误；
 - 身份缺失返回 401，Membership/Authorization 拒绝返回 403；
 - 无效请求返回 400 或 422，冲突返回 409；
 - 依赖不可用按接口语义返回 503，保护请求必须 fail closed；
@@ -319,7 +319,7 @@ myqypt/
 |   `-- adapters/
 |       |-- postgres/
 |       |-- openfga/
-|       |-- keycloak/
+|       |-- casdoor/
 |       `-- objectstore/
 |-- web/
 |   `-- src/
@@ -353,7 +353,7 @@ myqypt/
 - OpenAPI 生成的 Gin strict handler 可以处理一个无业务副作用的契约端点；
 - PostgreSQL migration 与连接检查可执行；
 - Request ID、结构化日志、Panic Recovery、Server timeout 和安全响应头生效；
-- 未配置 Keycloak/OpenFGA 时保护接口 fail closed；
+- 未配置 Casdoor/OpenFGA 时保护接口 fail closed；
 - 测试证明伪造 Tenant Header、跨 Tenant ID 和被撤销 Membership 均被拒绝；
 - 仓库扫描确认不存在 Casbin、上游 JWT、自有验证码、GORM、Swaggo、Host-based Tenant Resolver、默认管理员和默认密码；
 - Go unit、contract、PostgreSQL integration 和跨 Tenant attack tests 分别执行并记录结果。
@@ -393,7 +393,7 @@ myqypt/
 
 - 如果产品退化为仅内部使用的单租户管理后台，完整 `go-admin` Fork 会更快；
 - 如果 Portal 不再需要 SEO，保留 `shadcn-admin` 的 TanStack Router SPA 会更简单；
-- 如果决定放弃 Keycloak/OpenFGA 并采用自有 JWT/RBAC，需要重新进行安全和领域设计，不能通过本抽取方案顺带改变；
+- 如果决定放弃 Casdoor/OpenFGA 并采用自有 JWT/RBAC，需要重新进行安全和领域设计，不能通过本抽取方案顺带改变；
 - 如果团队无法承担上游差异维护，应选择稳定框架的干净脚手架，而不是继续扩大复制范围。
 
 ## 15. 实施边界
@@ -401,7 +401,7 @@ myqypt/
 本设计只授权后续计划搭建前后端 Foundation。它不包含：
 
 - Tenant、Membership、Product Binding、Billing 或 Usage 的完整业务实现；
-- Keycloak、OpenFGA、Temporal、OpenMeter 的生产集成；
+- Casdoor、OpenFGA、Temporal、OpenMeter 的生产集成；
 - 微信、支付宝支付链；
 - WeKnora Shared Cell 加固；
 - 生产 Kubernetes、HA 或灾难恢复；

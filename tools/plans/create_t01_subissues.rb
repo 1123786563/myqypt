@@ -21,8 +21,8 @@ items = [
     blockers: []
   },
   {
-    title: "[T01.2][P0] Keycloak Verified Subject 与 Identity Binding",
-    goal: "只接受经 Keycloak OIDC 验证的 issuer + subject，在 Platform PostgreSQL 幂等建立 User 与 Identity Binding，且不使用 email、phone 或 username 作为身份键。",
+    title: "[T01.2][P0] Casdoor Verified Subject 与 Identity Binding",
+    goal: "只接受经 Casdoor OIDC 验证的 issuer + subject，在 Platform PostgreSQL 幂等建立 User 与 Identity Binding，且不使用 email、phone 或 username 作为身份键。",
     blockers: :scaffold
   }
 ]

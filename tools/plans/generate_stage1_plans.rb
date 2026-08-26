@@ -51,7 +51,7 @@ DOSSIER_SLUGS = {
 
 T01_CHILD_SLUGS = {
   100 => "platform-scaffold-test-harness",
-  101 => "keycloak-verified-identity-binding"
+  101 => "casdoor-verified-identity-binding"
 }.freeze
 
 DOSSIER_ADRS = {
@@ -825,17 +825,17 @@ def t01_aggregator_plan(_issue)
 
     > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-    **Goal:** 组合 #100 的最小 Platform/测试 harness 与 #101 的 Keycloak Identity Binding，证明一次真实注册只创建一个稳定 Platform User 绑定。
+    **Goal:** 组合 #100 的最小 Platform/测试 harness 与 #101 的 Casdoor Identity Binding，证明一次真实注册只创建一个稳定 Platform User 绑定。
 
     **Architecture:** Issue #2 is an aggregator over two serial native sub-Issues. The parent adds no second identity implementation; it runs the black-box acceptance path against the composed Docker Compose stack and records the evidence needed by every downstream Ticket.
 
-    **Tech Stack:** Go 1.26, PostgreSQL, Keycloak OIDC, Docker Compose, black-box HTTP acceptance harness
+    **Tech Stack:** Go 1.26, PostgreSQL, Casdoor OIDC, Docker Compose, black-box HTTP acceptance harness
 
-    **Spec:** [GitHub Issue #2](https://github.com/#{REPO}/issues/2), [Issue #100](https://github.com/#{REPO}/issues/100), [Issue #101](https://github.com/#{REPO}/issues/101), `docs/adr/0024-separate-platform-users-from-keycloak-identities.md`
+    **Spec:** [GitHub Issue #2](https://github.com/#{REPO}/issues/2), [Issue #100](https://github.com/#{REPO}/issues/100), [Issue #101](https://github.com/#{REPO}/issues/101), `docs/adr/0024-separate-platform-users-from-casdoor-identities.md`
 
     ## Global Constraints
 
-    - Keycloak owns credentials and stable OIDC subject; Platform PostgreSQL owns User and Identity Binding.
+    - Casdoor owns credentials and stable OIDC subject; Platform PostgreSQL owns User and Identity Binding.
     - Identity key is exactly `identity_provider + subject`; email, phone, and username are profile attributes only.
     - Duplicate callback or retry returns the same Platform User and does not create a second binding.
     - Evidence contains stable test identifiers and dependency versions, never credentials, tokens, or personal profile values.
@@ -861,11 +861,11 @@ def t01_aggregator_plan(_issue)
       method: POST
       path: /internal/v1/identity/callback
       verified_oidc_claims:
-        issuer: http://keycloak:8080/realms/myqypt
+        issuer: http://casdoor:8000
         subject: subject-t01
     expect:
       status: 201
-      identity_key: http://keycloak:8080/realms/myqypt|subject-t01
+      identity_key: http://casdoor:8000|subject-t01
       binding_count: 1
     replay:
       deliveries: 2
@@ -1049,7 +1049,7 @@ def t01_foundation_plan(issue)
 
     `Run` must parse with unknown-field rejection, select the registered driver, enforce a context timeout, redact keys matching `secret|token|prompt|document|payment_payload`, and write a JSON report beneath `artifacts/evidence/<scenario-id>/`.
 
-    - [ ] **Step 4: Add PostgreSQL and Keycloak to the Compose development stack**
+    - [ ] **Step 4: Add PostgreSQL and Casdoor to the Compose development stack**
 
     ```yaml
     services:
@@ -1060,12 +1060,13 @@ def t01_foundation_plan(issue)
           interval: 2s
           timeout: 2s
           retries: 30
-      keycloak:
-        image: quay.io/keycloak/keycloak:26.3
-        command: ["start-dev", "--health-enabled=true"]
+      casdoor:
+        image: casbin/casdoor:3.159.0
         depends_on:
           postgres:
             condition: service_healthy
+        environment:
+          driverName: postgres
     ```
 
     Credentials come only from uncommitted environment files; committed Compose content uses variable references and fails fast when required values are absent.
@@ -1087,7 +1088,7 @@ def t01_foundation_plan(issue)
 
     ## Self-Review Record
 
-    - Spec coverage: executable API, PostgreSQL/Keycloak dev dependencies, and all three named evidence seams have an owned foundation.
+    - Spec coverage: executable API, PostgreSQL/Casdoor dev dependencies, and all three named evidence seams have an owned foundation.
     - Placeholder scan: exact paths, interfaces, redaction keys, commands, and expected outcomes are stated.
     - Type consistency: the `Driver`, `Scenario`, `Report`, `Register`, and `Run` signatures are the shared contract consumed by later plans.
     - Right-sizing: setup is folded into the harness deliverable that needs it; Identity Binding remains in #101.
@@ -1096,7 +1097,7 @@ end
 
 def t01_identity_child_plan(issue)
   <<~MARKDOWN
-    # T01.2 Keycloak Verified Subject 与 Identity Binding Implementation Plan
+    # T01.2 Casdoor Verified Subject 与 Identity Binding Implementation Plan
 
     > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1104,15 +1105,15 @@ def t01_identity_child_plan(issue)
 
     **Architecture:** OIDC middleware verifies signature, issuer, audience, expiry, and nonce before constructing `VerifiedIdentity`; the Identity service never accepts issuer/subject from a client body or header. One PostgreSQL transaction upserts the immutable issuer/subject binding and its Platform User, while mutable profile claims remain non-key attributes.
 
-    **Tech Stack:** Go 1.26, Keycloak OIDC, PostgreSQL, black-box HTTP acceptance harness
+    **Tech Stack:** Go 1.26, Casdoor OIDC, PostgreSQL, black-box HTTP acceptance harness
 
-    **Spec:** [GitHub Issue #101](https://github.com/#{REPO}/issues/101), `docs/adr/0024-separate-platform-users-from-keycloak-identities.md`, `CONTEXT.md`
+    **Spec:** [GitHub Issue #101](https://github.com/#{REPO}/issues/101), `docs/adr/0024-separate-platform-users-from-casdoor-identities.md`, `CONTEXT.md`
 
     ## Global Constraints
 
     - Only verified `issuer + subject` identifies a User; email, phone, and username cannot be unique cross-system keys.
     - Duplicate callbacks are idempotent and return the same Platform User.
-    - Keycloak identity deletion or disablement cannot cascade-delete Platform history or Product data.
+    - Casdoor identity deletion or disablement cannot cascade-delete Platform history or Product data.
     - Tokens, credentials, and mutable claims do not enter Audit or test evidence.
 
     ---
@@ -1135,7 +1136,7 @@ def t01_identity_child_plan(issue)
 
     ```go
     func TestBindReturnsOneUserForRepeatedIssuerSubject(t *testing.T) {
-        identity := identity.VerifiedIdentity{Issuer: "http://keycloak:8080/realms/myqypt", Subject: "subject-t01"}
+        identity := identity.VerifiedIdentity{Issuer: "http://casdoor:8000", Subject: "subject-t01"}
         first, err := service.Bind(context.Background(), identity)
         if err != nil { t.Fatal(err) }
         second, err := service.Bind(context.Background(), identity)
@@ -1169,7 +1170,7 @@ def t01_identity_child_plan(issue)
     );
     ```
 
-    Do not add email, phone, username, `organization_id`, or a cascading foreign key to Keycloak.
+    Do not add email, phone, username, `organization_id`, or a cascading foreign key to Casdoor.
 
     - [ ] **Step 4: Implement transactional bind-or-load**
 
@@ -1212,7 +1213,7 @@ def t01_identity_child_plan(issue)
 
     ```bash
     git add db/migrations/000001_identity_bindings.sql internal/identity
-    git commit -m "feat(identity): bind verified Keycloak subjects"
+    git commit -m "feat(identity): bind verified Casdoor subjects"
     ```
 
     ## Self-Review Record

@@ -20,7 +20,7 @@
 - Docker Compose is limited to development, CI, integration, and at most 10 controlled-beta Tenants; paid production uses multi-node Kubernetes and multi-AZ or managed stateful services.
 - Target monthly Control Plane / Gateway availability is 99.9%; Platform metadata and billing-fact RPO is at most 15 minutes, Product-data RPO at most one hour, and overall RTO at most four hours.
 - A focused unit test, health endpoint, static audit, successful Workflow, or smoke test does not substitute for the named acceptance, conformance, or Production Gate seam.
-- Blockers from the issue graph must be complete before implementation: - #70 — T69 Forward-only/Destructive Restore Rehearsal - #71 — T70 Verifiable Tenant Export - #73 — T72 Tenant Erasure 与 Erasure Record - #82 — T81 Multi-AZ Stateless Platform - #83 — T82 PostgreSQL Logical Isolation 与 HA - #84 — T83 Kafka、ClickHouse 与 OpenMeter HA - #85 — T84 Keycloak、OpenFGA、Temporal 与 Nacos HA
+- Blockers from the issue graph must be complete before implementation: - #70 — T69 Forward-only/Destructive Restore Rehearsal - #71 — T70 Verifiable Tenant Export - #73 — T72 Tenant Erasure 与 Erasure Record - #82 — T81 Multi-AZ Stateless Platform - #83 — T82 PostgreSQL Logical Isolation 与 HA - #84 — T83 Kafka、ClickHouse 与 OpenMeter HA - #85 — T84 Casdoor、OpenFGA、Temporal 与 Nacos HA
 
 ---
 

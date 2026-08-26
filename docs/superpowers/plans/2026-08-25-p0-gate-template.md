@@ -89,7 +89,7 @@ Platform engineering、security、finance/billing、product 四方各自独立�
 
 ### 3.6 Fail-Closed 语义
 
-- OpenFGA/Keycloak/PostgreSQL/Temporal 任一依赖不可用 ⇒ 保护类 case blocked，不降级；
+- OpenFGA/Casdoor/PostgreSQL/Temporal 任一依赖不可用 ⇒ 保护类 case blocked，不降级；
 - 证据缺失（无 fingerprint、无 case 证据引用）⇒ blocked；
 - 生产环境不得"只跑一半 Gate"；T88 聚合时任一 gate blocked ⇒ 上线 blocked。
 

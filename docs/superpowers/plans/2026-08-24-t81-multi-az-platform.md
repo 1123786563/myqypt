@@ -9,7 +9,7 @@
 
 **Architecture:** 本 Gate 是**故障注入验收套件**：driver 在 production-like 双 AZ 环境按清单注入故障（单实例终止、AZ 隔离、有状态组件切换），断言服务可用性、fail-closed 行为、RPO/RTO 实测值与恢复后的数据一致性。逐 case 记录证据（含故障注入前后 fingerprint 与时间戳）。harness 前置：tests/platformtest（#100/F01–F05）。
 
-**Tech Stack:** Go test harness、Kubernetes（多 AZ）、托管 PostgreSQL/Kafka/ClickHouse/Valkey、Higress/Keycloak/OpenFGA/Temporal/Nacos/OpenMeter（多副本）
+**Tech Stack:** Go test harness、Kubernetes（多 AZ）、托管 PostgreSQL/Kafka/ClickHouse/Valkey、Higress/Casdoor/OpenFGA/Temporal/Nacos/OpenMeter（多副本）
 
 **Spec:** [GitHub Issue #82](https://github.com/1123786563/myqypt/issues/82)、docs/architecture/architecture-baseline-risk-assessment-v1.1.md §22/§25、ADR-0007、ADR-0043、2026-08-25-p0-gate-template.md
 

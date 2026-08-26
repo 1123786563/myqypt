@@ -1,20 +1,20 @@
-# T01.2 Keycloak Verified Subject 与 Identity Binding Implementation Plan
+# T01.2 Casdoor Verified Subject 与 Identity Binding Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 只接受经 Keycloak OIDC 验证的 issuer + subject，在 Platform PostgreSQL 幂等建立 User 与 Identity Binding，且不使用 email、phone 或 username 作为身份键。
+**Goal:** 只接受经 Casdoor OIDC 验证的 issuer + subject，在 Platform PostgreSQL 幂等建立 User 与 Identity Binding，且不使用 email、phone 或 username 作为身份键。
 
 **Architecture:** OIDC middleware verifies signature, issuer, audience, expiry, and nonce before constructing `VerifiedIdentity`; the Identity service never accepts issuer/subject from a client body or header. One PostgreSQL transaction upserts the immutable issuer/subject binding and its Platform User, while mutable profile claims remain non-key attributes.
 
-**Tech Stack:** Go 1.26, Keycloak OIDC, PostgreSQL, black-box HTTP acceptance harness
+**Tech Stack:** Go 1.26, Casdoor OIDC, PostgreSQL, black-box HTTP acceptance harness
 
-**Spec:** [GitHub Issue #101](https://github.com/1123786563/myqypt/issues/101), `docs/adr/0024-separate-platform-users-from-keycloak-identities.md`, `CONTEXT.md`
+**Spec:** [GitHub Issue #101](https://github.com/1123786563/myqypt/issues/101), `docs/adr/0024-separate-platform-users-from-casdoor-identities.md`, `CONTEXT.md`
 
 ## Global Constraints
 
 - Only verified `issuer + subject` identifies a User; email, phone, and username cannot be unique cross-system keys.
 - Duplicate callbacks are idempotent and return the same Platform User.
-- Keycloak identity deletion or disablement cannot cascade-delete Platform history or Product data.
+- Casdoor identity deletion or disablement cannot cascade-delete Platform history or Product data.
 - Tokens, credentials, and mutable claims do not enter Audit or test evidence.
 
 ---
@@ -37,7 +37,7 @@
 
 ```go
 func TestBindReturnsOneUserForRepeatedIssuerSubject(t *testing.T) {
-    identity := identity.VerifiedIdentity{Issuer: "http://keycloak:8080/realms/myqypt", Subject: "subject-t01"}
+    identity := identity.VerifiedIdentity{Issuer: "http://casdoor:8000", Subject: "subject-t01"}
     first, err := service.Bind(context.Background(), identity)
     if err != nil { t.Fatal(err) }
     second, err := service.Bind(context.Background(), identity)
@@ -71,7 +71,7 @@ CREATE TABLE identity_bindings (
 );
 ```
 
-Do not add email, phone, username, `organization_id`, or a cascading foreign key to Keycloak.
+Do not add email, phone, username, `organization_id`, or a cascading foreign key to Casdoor.
 
 - [ ] **Step 4: Implement transactional bind-or-load**
 
@@ -114,7 +114,7 @@ Expected: PASS for first bind, duplicate bind, same subject under different issu
 
 ```bash
 git add db/migrations/000001_identity_bindings.sql internal/identity
-git commit -m "feat(identity): bind verified Keycloak subjects"
+git commit -m "feat(identity): bind verified Casdoor subjects"
 ```
 
 ## Self-Review Record

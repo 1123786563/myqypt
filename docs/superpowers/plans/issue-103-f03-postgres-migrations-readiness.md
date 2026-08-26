@@ -23,13 +23,13 @@
 - 不引入 GORM、AutoMigrate、sqlc 生成、多数据库 Driver、任何未使用的数据库依赖（验收标准明令禁止；go.mod 新增仅限 pgx v5.10.0 + goose v3.27.3 及其传递依赖）。
 - 不做 Tenant 切库、连接的全局单例、运行期自动迁移（serve 启动不执行迁移）。
 - 不修改 OpenAPI 契约（`api/openapi/platform.yaml`）：`/readyz` 与 `/livez` 同属运营端点，不进公共产品契约（系列计划 File Structure 未列契约改动）。
-- 不修改 `deploy/compose/compose.yaml`（现有 Keycloak 开发栈）与 `docs/superpowers/plans/2026-08-24-f03-*.md`（sync 管辖的系列计划）。
+- 不修改 `deploy/compose/compose.yaml`（现有 Casdoor 开发栈）与 `docs/superpowers/plans/2026-08-24-f03-*.md`（sync 管辖的系列计划）。
 - 不做 F04 范围的 HTTP 安全头/可观测中间件、request-ID 格式校验（已登记为 F04 需求）。
 - 不 push、不 merge、不关闭/评论 issue（外部副作用留给用户）。
 
 ## 设计裁定（对系列计划的必要澄清与偏差记录）
 
-1. **系列计划 Tech Stack 写 "PostgreSQL 18"，现有 `deploy/compose/compose.yaml` 用 postgres:17** —— 裁定：F03 交付物（集成测试与冒烟栈）按系列计划使用 **postgres:18**；现有 17 栈属 Keycloak 开发环境，不改。
+1. **系列计划 Tech Stack 写 "PostgreSQL 18"，现有 `deploy/compose/compose.yaml` 用 postgres:17** —— 裁定：F03 交付物（集成测试与冒烟栈）按系列计划使用 **postgres:18**；现有 17 栈属 Casdoor 开发环境，不改。
 2. **系列计划引用 "ADR-0003" 与 PostgreSQL 无关**（ADR-0003 是 Product Catalog 决策）—— 裁定：以抽取设计 §6.1/§6.3/§12.2 与 issue 正文为准，不追改系列计划文件。
 3. **serve 不因数据库不可用而退出**（关键裁定）：`TestPlatformAPIProcess`（F01 既有测试）在无 `DATABASE_URL` 环境下启动 serve 并要求 `/livez` 可达——serve 必须在数据库缺失/不可用时保持存活且 `/readyz` 503（fail closed），数据库恢复后 `/readyz` 转为 200（readiness transition，无需重启进程）。因此：
    - `Open` 建池**惰性连接**（`pgxpool.NewWithConfig` 不主动连接），serve 路径永不因 Ping 失败退出；

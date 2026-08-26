@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 从 `d6eec55` 创建只包含 Issue #100 F01 进程闭环的可验证分支，并排除历史 Compose、PostgreSQL、Keycloak 与证据脚手架。
+**Goal:** 从 `d6eec55` 创建只包含 Issue #100 F01 进程闭环的可验证分支，并排除历史 Compose、PostgreSQL、Casdoor 与证据脚手架。
 
 **Architecture:** 保留 F01 的标准 Go 模块、Gin HTTP Transport、Cobra CLI 和 `net/http` runtime 生命周期边界。新的分支只迁移 F01 所需源码与测试，不迁移旧分支中的开发依赖栈或 evidence harness。
 
@@ -15,7 +15,7 @@
 - Base commit is `d6eec55`; preserve the existing branch `codex/t01-1-platform-scaffold` unchanged.
 - Module path is `github.com/1123786563/myqypt`; pin toolchain `go1.26.7`.
 - Gin is only an HTTP Transport detail; application and runtime interfaces expose standard Go types.
-- `/livez` reports process liveness only and never checks PostgreSQL, Keycloak, or other dependencies.
+- `/livez` reports process liveness only and never checks PostgreSQL, Casdoor, or other dependencies.
 - The clean branch must not contain `deploy/compose/`, `deploy/compose/postgres-init/`, `tests/platformtest/`, or historical evidence report files.
 - Do not push, merge, publish, close, comment on, or otherwise modify GitHub state.
 
@@ -29,7 +29,7 @@
 | HTTP boundary | `internal/transport/http/*` | Application/domain Gin exposure | Keep Gin only in the transport package. |
 | Runtime and CLI | `internal/platform/runtime/*`, `internal/platform/cli/*` | Old `internal/platform/app.go` scaffold | Keep runtime lifecycle and command parsing only. |
 | Dependencies | `go.mod`, `go.sum` | Historical evidence harness dependencies | Keep only dependencies required by F01 source. |
-| Development stack | None | Compose, PostgreSQL, Keycloak, init scripts | Exclude all non-F01 service files. |
+| Development stack | None | Compose, PostgreSQL, Casdoor, init scripts | Exclude all non-F01 service files. |
 
 ## Task 1: Port the pure F01 implementation
 
@@ -90,7 +90,7 @@ test ! -e deploy/compose
 test ! -e tests/platformtest
 test ! -e internal/platform/app.go
 test ! -e internal/platform/app_test.go
-! rg -n 'postgres|keycloak|readyz|Readiness|evidence' cmd internal
+! rg -n 'postgres|casdoor|readyz|Readiness|evidence' cmd internal
 ```
 
 Expected: every `test` succeeds and the boundary scan returns no matches.
@@ -119,6 +119,6 @@ git commit -m "feat(platform): isolate clean F01 process branch"
 ## Acceptance
 
 - `git diff --name-only d6eec55..HEAD` contains only the F01 inventory plus this plan.
-- No Compose, PostgreSQL, Keycloak, evidence harness, or application readiness files exist.
+- No Compose, PostgreSQL, Casdoor, evidence harness, or application readiness files exist.
 - F01 unit, process, race, vet, format, build, and version checks pass under Go 1.26.7.
 - A task review and a final whole-branch review report no Critical/Important findings.

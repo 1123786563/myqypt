@@ -154,7 +154,7 @@ Portal / BFF / Platform API
       ▼
 Higress ─────────────── Controlled Egress Proxy
       │                           │
-      ├── Keycloak                └── Approved external targets
+      ├── Casdoor                  └── Approved external targets
       ├── OpenFGA
       ├── Platform Control Plane
       ├── Platform Commerce
@@ -193,7 +193,7 @@ Observability: OpenTelemetry-compatible stack
 
 - Higress；
 - Controlled Egress Proxy；
-- Keycloak；
+- Casdoor；
 - OpenFGA；
 - Kubernetes Network Policy。
 
@@ -245,7 +245,7 @@ Nacos 保持内网化。生产显式开启 Server/Admin/Console auth，所有节
 
 ## 7. PostgreSQL 隔离
 
-Stage 1 使用一个托管 HA PostgreSQL 服务，但为 Platform、Keycloak、OpenFGA、Temporal、OpenMeter、Nacos 和每个 WeKnora Cell 创建独立 database、role、migration owner、credential、monitoring 和 backup boundary。
+Stage 1 使用一个托管 HA PostgreSQL 服务，但为 Platform、Casdoor、OpenFGA、Temporal、OpenMeter、Nacos 和每个 WeKnora Cell 创建独立 database、role、migration owner、credential、monitoring 和 backup boundary。
 
 禁止跨数据库 Join、共享表或复用迁移账号。Billing 或 Product Cell 达到连接、存储、负载或故障隔离阈值时迁入独立服务。
 
@@ -253,7 +253,7 @@ Nacos 3.2.x 已正式支持 PostgreSQL；必须使用匹配版本的 schema、�
 
 ## 8. Identity 与 Tenant Context
 
-Keycloak 拥有 Credential、MFA、外部 IdP 和稳定 subject。Platform User 通过 `identity_provider + subject` 建立 Identity Binding。
+Casdoor 拥有 Credential、MFA、外部 IdP 和稳定 subject。Platform User 通过 `identity_provider + subject` 建立 Identity Binding。
 
 ```text
 客户端选择 tenant_id
@@ -604,7 +604,7 @@ Stage 1 在一个中国大陆 Region 内跨多个 Availability Zone：
 - 加密 Backup 位于独立故障域；
 - 不做跨 Region Active-Active。
 
-Keycloak、Higress、OpenFGA、Temporal、Nacos、OpenMeter API/Workers 和 Platform Services 均不得以单实例承担生产流量。
+Casdoor、Higress、OpenFGA、Temporal、Nacos、OpenMeter API/Workers 和 Platform Services 均不得以单实例承担生产流量。
 
 ## 23. Deferred Components 与引入条件
 
@@ -636,7 +636,7 @@ Keycloak、Higress、OpenFGA、Temporal、Nacos、OpenMeter API/Workers 和 Plat
 ### P1
 
 1. OpenMeter、Nacos 等依赖版本与接口快速变化；
-2. Higress、Keycloak、OpenFGA、Kafka、ClickHouse、Temporal 的集中故障；
+2. Higress、Casdoor、OpenFGA、Kafka、ClickHouse、Temporal 的集中故障；
 3. Shared Cell noisy neighbor；
 4. 多组件运维负担超出 8 人团队；
 5. 模型 Provider 数据条款与 Fallback 冲突；

@@ -9,7 +9,7 @@
 
 **Architecture:** 本 Gate 是**访问控制验收套件**：driver 模拟 Support/Emergency 访问申请 → 授权 → 使用 → 到期 → 审计全链路，断言每一道闸门（case/reason/consent/MFA/JIT/只读/audit/expiry）机械可判；验证无 standing 访问、Emergency 的事后通知与复核、以及 fail closed（consent 缺失即拒绝）。harness 前置：tests/platformtest（#100/F01–F05）。
 
-**Tech Stack:** Go test harness、Keycloak（MFA/会话）、OpenFGA（临时授权）、Audit 流、Temporal（到期）
+**Tech Stack:** Go test harness、Casdoor（MFA/会话）、OpenFGA（临时授权）、Audit 流、Temporal（到期）
 
 **Spec:** [GitHub Issue #80](https://github.com/1123786563/myqypt/issues/80)、docs/architecture/architecture-baseline-risk-assessment-v1.1.md §20/§25、ADR-0041、ADR-0048、ADR-0049、2026-08-25-p0-gate-template.md
 
@@ -46,12 +46,12 @@
 
 ## 证据与批准
 
-- `docs/evidence/gates/t79-jit-operator-access/<run-id>.yaml`：含 fingerprint（keycloak/openfga/audit 版本 digest）与逐 case 结果。
+- `docs/evidence/gates/t79-jit-operator-access/<run-id>.yaml`：含 fingerprint（casdoor/openfga/audit 版本 digest）与逐 case 结果。
 - 四方批准（ADR-0044）：四角色各自 reviewer + approved + rationale + manifest_sha256；审批人 ≠ 访问执行人。
 
 ## Fail-Closed 语义
 
-- Keycloak/OpenFGA/Audit 任一不可用 ⇒ 拒绝访问类 case blocked，不降级为允许；
+- Casdoor/OpenFGA/Audit 任一不可用 ⇒ 拒绝访问类 case blocked，不降级为允许；
 - consent/case 缺失 ⇒ 拒绝（CASE-01/02）；到期时间无法判定 ⇒ 拒绝。
 
 ---
@@ -71,7 +71,7 @@
 
 ### Task 2: 受控环境全量运行
 
-- [ ] **Step 1:** 起 Keycloak + OpenFGA + Audit 环境，记录 fingerprint。
+- [ ] **Step 1:** 起 Casdoor + OpenFGA + Audit 环境，记录 fingerprint。
 - [ ] **Step 2:** 运行全 10 case（含 CASE-06 到期重放、CASE-08 Emergency、CASE-09 standing 枚举）。
 - [ ] **Step 3:** 修复缺陷（回退 T07/T09/T24 对应 ticket）。
 - [ ] **Step 4:** 产出并提交证据：git commit -m "evidence(gates): t79 run-<run-id> all cases pass"

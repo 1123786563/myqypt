@@ -29,7 +29,7 @@
 | 0021 | [Require Provider-verified idempotent payment transitions](../adr/0021-require-provider-verified-idempotent-payment-transitions.md) | accepted |
 | 0022 | [Adopt OpenFGA in Stage 1](../adr/0022-adopt-openfga-in-stage-1.md) | accepted |
 | 0023 | [Model Shared Product Instances separately from Tenant bindings](../adr/0023-model-shared-product-instances-separately-from-tenant-bindings.md) | accepted |
-| 0024 | [Separate Platform Users from Keycloak identities](../adr/0024-separate-platform-users-from-keycloak-identities.md) | accepted |
+| 0024 | [Separate Platform Users from Casdoor identities](../adr/0024-separate-platform-users-from-casdoor-identities.md) | accepted |
 | 0025 | [Use Temporal for Stage 1 lifecycle orchestration](../adr/0025-use-temporal-for-stage-1-lifecycle-orchestration.md) | accepted |
 | 0026 | [Use managed Secrets before self-hosting OpenBao](../adr/0026-use-managed-secrets-before-self-hosting-openbao.md) | accepted |
 | 0027 | [Use Valkey for persistent deduplication](../adr/0027-use-valkey-for-persistent-deduplication.md) | accepted |

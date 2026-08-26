@@ -2,17 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 组合 #100 的最小 Platform/测试 harness 与 #101 的 Keycloak Identity Binding，证明一次真实注册只创建一个稳定 Platform User 绑定。
+**Goal:** 组合 #100 的最小 Platform/测试 harness 与 #101 的 Casdoor Identity Binding，证明一次真实注册只创建一个稳定 Platform User 绑定。
 
 **Architecture:** Issue #2 is an aggregator over two serial native sub-Issues. The parent adds no second identity implementation; it runs the black-box acceptance path against the composed Docker Compose stack and records the evidence needed by every downstream Ticket.
 
-**Tech Stack:** Go 1.26, PostgreSQL, Keycloak OIDC, Docker Compose, black-box HTTP acceptance harness
+**Tech Stack:** Go 1.26, PostgreSQL, Casdoor OIDC, Docker Compose, black-box HTTP acceptance harness
 
-**Spec:** [GitHub Issue #2](https://github.com/1123786563/myqypt/issues/2), [Issue #100](https://github.com/1123786563/myqypt/issues/100), [Issue #101](https://github.com/1123786563/myqypt/issues/101), `docs/adr/0024-separate-platform-users-from-keycloak-identities.md`
+**Spec:** [GitHub Issue #2](https://github.com/1123786563/myqypt/issues/2), [Issue #100](https://github.com/1123786563/myqypt/issues/100), [Issue #101](https://github.com/1123786563/myqypt/issues/101), `docs/adr/0024-separate-platform-users-from-casdoor-identities.md`
 
 ## Global Constraints
 
-- Keycloak owns credentials and stable OIDC subject; Platform PostgreSQL owns User and Identity Binding.
+- Casdoor owns credentials and stable OIDC subject; Platform PostgreSQL owns User and Identity Binding.
 - Identity key is exactly `identity_provider + subject`; email, phone, and username are profile attributes only.
 - Duplicate callback or retry returns the same Platform User and does not create a second binding.
 - Evidence contains stable test identifiers and dependency versions, never credentials, tokens, or personal profile values.
@@ -38,11 +38,11 @@ request:
   method: POST
   path: /internal/v1/identity/callback
   verified_oidc_claims:
-    issuer: http://keycloak:8080/realms/myqypt
+    issuer: http://casdoor:8000
     subject: subject-t01
 expect:
   status: 201
-  identity_key: http://keycloak:8080/realms/myqypt|subject-t01
+  identity_key: http://casdoor:8000|subject-t01
   binding_count: 1
 replay:
   deliveries: 2

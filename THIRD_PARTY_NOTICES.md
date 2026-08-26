@@ -39,7 +39,7 @@ be re-reviewed as a new diff, never merged over these files.
 ### Deliberately NOT copied from the upstream
 
 - **Clerk authentication** — no `@clerk/*` dependency, Clerk route, or Clerk
-  component exists here. Platform identity is owned by the Go/Keycloak side of the
+  component exists here. Platform identity is owned by the Go/Casdoor side of the
   platform and is out of scope for the static landing.
 - **Demo domain models** — the upstream's Tasks, Chats, Users, and Apps demo CRUD
   features (data, routes, and UI) were not carried over. This project's routes are
@@ -135,7 +135,7 @@ a new diff, never merged over these files.
 - **Business modules** — `app/admin`, `app/demo`, and `app/other` business
   code, and the `SysUser`/`SysDept`/`SysPost`/`SysRole`/`SysMenu` models.
 - **Own authentication** — upstream login, captcha, JWT, and refresh-token
-  flows; this platform's identity stays on the Go/Keycloak side.
+  flows; this platform's identity stays on the Go/Casdoor side.
 - **Casbin** — no Casbin rule, Enforcer, or permission middleware.
 - **Host-based tenant routing** — no automatic tenant-DB selection from Host,
   Header, Query, or Cookie.

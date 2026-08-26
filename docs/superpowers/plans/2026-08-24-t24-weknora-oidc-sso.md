@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go services and test harnesses, PostgreSQL, Docker Compose for development and controlled-beta verification, WeKnora, Higress
 
-**Spec:** [GitHub Issue #25](https://github.com/1123786563/myqypt/issues/25), `docs/architecture/architecture-baseline-risk-assessment-v1.1.md`, `CONTEXT.md`, `docs/adr/0024-separate-platform-users-from-keycloak-identities.md`, `docs/adr/0035-retain-native-product-uis-behind-the-platform-edge.md`
+**Spec:** [GitHub Issue #25](https://github.com/1123786563/myqypt/issues/25), `docs/architecture/architecture-baseline-risk-assessment-v1.1.md`, `CONTEXT.md`, `docs/adr/0024-separate-platform-users-from-casdoor-identities.md`, `docs/adr/0035-retain-native-product-uis-behind-the-platform-edge.md`
 
 ## Global Constraints
 

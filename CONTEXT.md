@@ -42,7 +42,7 @@ _Avoid_: Organization context, implicit current account
 
 **Platform Context**:
 A short-lived, audience-bound assertion issued after the Platform validates an active Membership and authorization for a selected Tenant Context. Products receive it only through the trusted Platform edge and network path.
-_Avoid_: Client tenant header, Keycloak token, long-lived role token
+_Avoid_: Client tenant header, identity provider token, long-lived role token
 
 ## Platform access
 

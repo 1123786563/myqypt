@@ -19,7 +19,7 @@
 | F07 | [#107](https://github.com/1123786563/myqypt/issues/107) | [AppShell](2026-08-24-f07-app-shell.md) | F06 |
 | F08 | [#108](https://github.com/1123786563/myqypt/issues/108) | [Route error UX](2026-08-24-f08-route-error-ux.md) | F07 |
 | F09 | [#109](https://github.com/1123786563/myqypt/issues/109) | [Generated TS client/status](2026-08-24-f09-generated-ts-client-status.md) | F02, F06, F08 |
-| F10 | [#110](https://github.com/1123786563/myqypt/issues/110) | [Keycloak browser session](2026-08-24-f10-keycloak-browser-session.md) | #101, F04, F07, F08 |
+| F10 | [#110](https://github.com/1123786563/myqypt/issues/110) | [Casdoor browser session](2026-08-24-f10-casdoor-browser-session.md) | #101, F04, F07, F08 |
 | F11 | [#111](https://github.com/1123786563/myqypt/issues/111) | [Tenant selector](2026-08-24-f11-tenant-selector.md) | #4 (T03), F10 |
 | F12 | [#112](https://github.com/1123786563/myqypt/issues/112) | [Tenant authorization](2026-08-24-f12-tenant-authorization-fail-closed.md) | #9, #10, #11, F11 |
 | F13 | [#113](https://github.com/1123786563/myqypt/issues/113) | [Catalog console table](2026-08-24-f13-catalog-console-table.md) | #14 (T13), F12 |

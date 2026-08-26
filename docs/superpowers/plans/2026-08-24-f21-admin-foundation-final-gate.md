@@ -4,9 +4,9 @@
 
 **Goal:** 将 F01–F20 的契约、生成、测试、安全、发布和来源证明组合成可重复的最终验收，未通过任何强制项时不得宣称基础完成。
 
-**Architecture:** 一个只编排、不隐藏子结果的 verification runner 分层执行静态、单元、集成、浏览器、网关和发布演练；输出机器可读报告与人类摘要。真实外部 Keycloak/CDN 若未配置，报告为未执行而非通过。
+**Architecture:** 一个只编排、不隐藏子结果的 verification runner 分层执行静态、单元、集成、浏览器、网关和发布演练；输出机器可读报告与人类摘要。真实外部 Casdoor/CDN 若未配置，报告为未执行而非通过。
 
-**Tech Stack:** Make, Go test, pnpm/Vitest/Playwright, PostgreSQL/OpenFGA/Keycloak fixtures, Higress conformance
+**Tech Stack:** Make, Go test, pnpm/Vitest/Playwright, PostgreSQL/OpenFGA/Casdoor fixtures, Higress conformance
 
 **Spec:** [Issue #121](https://github.com/1123786563/myqypt/issues/121), extraction design §10
 
@@ -50,7 +50,7 @@ run_check web-build "pnpm --dir web build"
 
 ### Task 2: Execute the acceptance matrix
 
-- [ ] Start isolated PostgreSQL, Keycloak, OpenFGA, fake build dispatcher/object store/CDN and Higress fixtures with random local ports; record exact image/config digests.
+- [ ] Start isolated PostgreSQL, Casdoor, OpenFGA, fake build dispatcher/object store/CDN and Higress fixtures with random local ports; record exact image/config digests.
 - [ ] Run Go format/vet, migration Up/Down/Up, API race tests, generated stale scans, forbidden-source scans, frontend lint/format check/typecheck/unit/browser/build and SDK pack smoke as separate report checks.
 - [ ] Run Playwright: public pages without JS; OIDC session; zero/one/multiple Tenant; switch/revoke; Catalog table; 401/403/404/500/503; mobile/desktop keyboard flows.
 - [ ] Run attack matrix: spoofed identity headers, cross-Tenant user/client, revoked binding, FGA deny/unknown/outage, DB outage and malformed cursor.
