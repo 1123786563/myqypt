@@ -36,9 +36,10 @@ func TestHealthCheckerTracksMigrationState(t *testing.T) {
 	checker := postgres.NewHealthChecker(pool)
 
 	// Start from the un-migrated floor regardless of any prior test state.
-	// On a fresh database down-one has nothing to roll back; that error is
-	// irrelevant here, the subsequent Check outcome is what matters.
-	_ = postgres.MigrateDownOne(ctx, db, migrations.FS)
+	// Down-one rolls back a single version, so repeat until goose has
+	// nothing left; the terminating error is irrelevant here, the
+	// subsequent Check outcome is what matters.
+	migrateDownToFloor(ctx, db)
 
 	if err := checker.Check(ctx); err == nil {
 		t.Fatal("check before migrate = nil, want failure on the un-migrated schema")
@@ -51,11 +52,22 @@ func TestHealthCheckerTracksMigrationState(t *testing.T) {
 		t.Fatalf("check after migrate = %v, want nil", err)
 	}
 
-	if err := postgres.MigrateDownOne(ctx, db, migrations.FS); err != nil {
-		t.Fatalf("migrate down one: %v", err)
-	}
+	// Roll back down to the floor: readiness must fail again once the
+	// marker table is gone.
+	migrateDownToFloor(ctx, db)
 	if err := checker.Check(ctx); err == nil {
-		t.Fatal("check after down-one = nil, want failure once the marker table is gone")
+		t.Fatal("check after migrate-down = nil, want failure once the marker table is gone")
+	}
+}
+
+// migrateDownToFloor rolls back one migration version at a time until
+// goose has nothing left to roll back. The terminating error is expected
+// and swallowed; the resulting schema floor is what callers assert on.
+func migrateDownToFloor(ctx context.Context, db *sql.DB) {
+	for {
+		if err := postgres.MigrateDownOne(ctx, db, migrations.FS); err != nil {
+			return
+		}
 	}
 }
 

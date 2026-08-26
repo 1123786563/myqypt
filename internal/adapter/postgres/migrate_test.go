@@ -44,7 +44,11 @@ func TestMigrationRoundTrip(t *testing.T) {
 	if err := postgres.MigrateDownOne(ctx, db, migrations.FS); err != nil {
 		t.Fatalf("migrate down one: %v", err)
 	}
-	assertSchemaHealthGone(t, ctx, db)
+	// Down-one rolls back exactly the latest applied version: the
+	// identity bindings migration is undone while the baseline marker
+	// from the first migration survives.
+	assertSchemaHealth(t, ctx, db)
+	assertIdentityTablesGone(t, ctx, db)
 }
 
 type schemaColumn struct {
@@ -117,18 +121,21 @@ func assertSchemaHealth(t *testing.T, ctx context.Context, db *sql.DB) {
 	}
 }
 
-func assertSchemaHealthGone(t *testing.T, ctx context.Context, db *sql.DB) {
+// assertIdentityTablesGone asserts the identity bindings migration was
+// rolled back: neither identity_bindings nor platform_users has a column
+// left.
+func assertIdentityTablesGone(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 
 	var columns int
 	if err := db.QueryRowContext(ctx, `
 		SELECT count(*)
 		FROM information_schema.columns
-		WHERE table_name = 'schema_health'`).Scan(&columns); err != nil {
+		WHERE table_name IN ('identity_bindings', 'platform_users')`).Scan(&columns); err != nil {
 		t.Fatalf("query information_schema.columns after down-one: %v", err)
 	}
 	if columns != 0 {
-		t.Fatalf("schema_health columns after down-one = %d, want 0", columns)
+		t.Fatalf("identity tables columns after down-one = %d, want 0", columns)
 	}
 }
 
