@@ -95,6 +95,69 @@ are rejected in authored sources (`pnpm --dir web verify:forbidden`).
   above are deliberate functional reductions made for this extraction — no
   consumer needs `destructive` or `aria-invalid` styling today.
 
+## shadcn/ui DropdownMenu, Sheet, and Tooltip components — canonical copies
+
+- Source: the canonical `dropdown-menu.tsx`, `sheet.tsx`, and `tooltip.tsx`
+  published by the shadcn/ui project (<https://github.com/shadcn-ui/ui>,
+  Tailwind CSS v4 "new-york" style), MIT licensed and distributed via the
+  shadcn CLI.
+- Pinned upstream revision: commit
+  `8d6553a7f5b11d87b8968ec47479ec310e4c09af` (2026-06-29, the latest commit
+  touching `apps/v4/registry/new-york-v4/ui` at fetch time). The three files
+  were fetched verbatim from
+  `raw.githubusercontent.com/shadcn-ui/ui/8d6553a7f5b11d87b8968ec47479ec310e4c09af/apps/v4/registry/new-york-v4/ui/{dropdown-menu,sheet,tooltip}.tsx`
+  and localized as listed below. The same revision-drift caveat as the Button
+  section applies: canonical class details evolve, so deltas are recorded
+  against this exact SHA.
+- Local copies: `web/src/components/ui/dropdown-menu.tsx`,
+  `web/src/components/ui/sheet.tsx`, `web/src/components/ui/tooltip.tsx`,
+  locally maintained — upstream is not a dependency and is not fetched at
+  build time.
+- Complete list of local differences from the canonical files (items 1–5 are
+  shared by all three copies; items 6–9 are file- or CSS-specific):
+  1. The `cn` utility import path is `../../lib/utils` instead of the canonical
+     `@/lib/utils` alias (this project configures no path alias).
+  2. The leading `"use client"` directive is omitted (Vite + React Router
+     rendering, no React Server Components boundary).
+  3. Radix imports use the scoped runtime packages added for this extraction
+     with exact pins (`@radix-ui/react-dropdown-menu@2.1.24` for
+     dropdown-menu, `@radix-ui/react-dialog@1.1.23` for sheet,
+     `@radix-ui/react-tooltip@1.2.16` for tooltip) instead of the canonical
+     monolithic `radix-ui` package re-export.
+  4. The `lucide-react` icon imports are replaced by minimal inline SVG
+     components defined inside the primitive file with the same geometry
+     (CheckIcon/ChevronRightIcon/CircleIcon in dropdown-menu, XIcon in sheet;
+     basic check/chevron/dot/cross shapes as used by the ISC-licensed lucide
+     icon set). This repository deliberately does not depend on
+     `lucide-react`, so the icon glyphs it renders are reproduced locally.
+  5. Formatting normalized by Prettier (single quotes, no semicolons).
+  6. dropdown-menu only: the `variant="destructive"` preset of
+     `DropdownMenuItem` is omitted (same policy as the Button copy's omitted
+     `destructive` variant): the local theme defines no `--destructive`
+     tokens, so the `data-[variant=destructive]` styling is dropped and the
+     component exposes no `variant` prop. Reintroducing it later requires
+     adding destructive color tokens to `web/src/styles/app.css`.
+  7. sheet only: the built-in close button's screen-reader label is localized
+     (`关闭` instead of `Close`), matching this repository's Chinese UI copy.
+  8. `web/src/styles/app.css` gains the `--popover` / `--popover-foreground`
+     color tokens (light, dark, and `@theme inline` mappings, oklch values in
+     the established style) because the dropdown-menu surface classes
+     (`bg-popover`, `text-popover-foreground`) had no local token to resolve
+     to.
+  9. `web/src/styles/app.css` also gains a minimal hand-written subset of the
+     `tw-animate-css` utilities that these primitives use — `animate-in` /
+     `animate-out` (keyframed on `enter` / `exit`, reading
+     `--tw-enter-*` / `--tw-exit-*` custom properties and `--tw-duration`),
+     `fade-in/out-0`, `zoom-in/out-95`, and the `slide-in-from-*` /
+     `slide-out-to-*` variants — because the upstream template relies on the
+     `tw-animate-css` package, which this repository deliberately does not
+     add as a dependency.
+- Functional status: every exported part of the three copies behaves as the
+  canonical files do for the presets that are present. The one deliberate
+  functional reduction is the dropdown item's destructive variant (item 6);
+  the sheet's slide-in/slide-out and the overlay/content enter/exit
+  animations work through the CSS subset added under item 9.
+
 ## go-admin — backend engineering patterns
 
 - Upstream project: <https://github.com/go-admin-team/go-admin>
@@ -189,7 +252,8 @@ at the revision recorded above):
 
 - `satnaing/shadcn-admin` — engineering configuration patterns and theming
   approach: `Copyright (c) 2024 Sat Naing`
-- `shadcn/ui` — the Button component copy at `web/src/components/ui/button.tsx`:
+- `shadcn/ui` — the UI primitive copies at `web/src/components/ui/`
+  (`button.tsx`, `dropdown-menu.tsx`, `sheet.tsx`, `tooltip.tsx`):
   `Copyright (c) 2023 shadcn`
 - `go-admin-team/go-admin` — backend engineering patterns: `Copyright (c) 2026
   go-admin-team`

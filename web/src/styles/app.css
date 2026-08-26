@@ -16,6 +16,8 @@
   --border: oklch(0.9 0.008 265);
   --input: oklch(0.9 0.008 265);
   --ring: oklch(0.55 0.18 275);
+  --popover: oklch(0.995 0.002 265);
+  --popover-foreground: oklch(0.245 0.02 265);
   --radius: 0.625rem;
 }
 
@@ -33,6 +35,8 @@
   --border: oklch(0.31 0.015 265);
   --input: oklch(0.31 0.015 265);
   --ring: oklch(0.6 0.14 276);
+  --popover: oklch(0.21 0.015 265);
+  --popover-foreground: oklch(0.955 0.004 265);
 }
 
 @theme inline {
@@ -49,10 +53,108 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* —— shadcn 原语所需的进入/退出动画工具（最小子集）——
+   上游模板依赖 tw-animate-css 提供这组工具类；本仓库不引入该依赖，
+   按需手写 dropdown-menu / sheet / tooltip 实际用到的变体：
+   enter / exit 关键帧读取 --tw-enter-* / --tw-exit-* 变量，
+   fade / zoom / slide 工具只负责写入这些变量。 */
+
+@utility animate-in {
+  animation-name: enter;
+  animation-duration: var(--tw-duration, 0.15s);
+}
+
+@utility animate-out {
+  animation-name: exit;
+  animation-duration: var(--tw-duration, 0.15s);
+}
+
+@keyframes enter {
+  from {
+    opacity: var(--tw-enter-opacity, 1);
+    transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0)
+      scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), var(--tw-enter-scale, 1));
+  }
+}
+
+@keyframes exit {
+  to {
+    opacity: var(--tw-exit-opacity, 1);
+    transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0)
+      scale3d(var(--tw-exit-scale, 1), var(--tw-exit-scale, 1), var(--tw-exit-scale, 1));
+  }
+}
+
+@utility fade-in-0 {
+  --tw-enter-opacity: 0;
+}
+
+@utility fade-out-0 {
+  --tw-exit-opacity: 0;
+}
+
+@utility zoom-in-95 {
+  --tw-enter-scale: 0.95;
+}
+
+@utility zoom-out-95 {
+  --tw-exit-scale: 0.95;
+}
+
+@utility slide-in-from-top-2 {
+  --tw-enter-translate-y: -0.5rem;
+}
+
+@utility slide-in-from-bottom-2 {
+  --tw-enter-translate-y: 0.5rem;
+}
+
+@utility slide-in-from-left-2 {
+  --tw-enter-translate-x: -0.5rem;
+}
+
+@utility slide-in-from-right-2 {
+  --tw-enter-translate-x: 0.5rem;
+}
+
+@utility slide-in-from-top {
+  --tw-enter-translate-y: -100%;
+}
+
+@utility slide-in-from-bottom {
+  --tw-enter-translate-y: 100%;
+}
+
+@utility slide-in-from-left {
+  --tw-enter-translate-x: -100%;
+}
+
+@utility slide-in-from-right {
+  --tw-enter-translate-x: 100%;
+}
+
+@utility slide-out-to-top {
+  --tw-exit-translate-y: -100%;
+}
+
+@utility slide-out-to-bottom {
+  --tw-exit-translate-y: 100%;
+}
+
+@utility slide-out-to-left {
+  --tw-exit-translate-x: -100%;
+}
+
+@utility slide-out-to-right {
+  --tw-exit-translate-x: 100%;
 }
 
 @layer base {
