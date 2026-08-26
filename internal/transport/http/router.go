@@ -24,7 +24,10 @@ import (
 // middleware when non-nil. Security configures CORS; when nil, the security
 // headers stay on with CORS disabled (an empty origin allowlist).
 // TracerProvider feeds the otelgin tracing middleware; nil selects an
-// explicit noop provider (the otel global is never read).
+// explicit noop provider (the otel global is never read). Identity
+// optionally wires the internal identity callback endpoint: nil leaves the
+// route unregistered (unmatched paths get the 404 problem), while a
+// non-nil assembly with a missing port fails closed per request.
 type Dependencies struct {
 	Version        string
 	Readiness      *readiness.Service
@@ -32,6 +35,7 @@ type Dependencies struct {
 	Logger         *slog.Logger
 	Security       *middleware.SecurityConfig
 	TracerProvider trace.TracerProvider
+	Identity       *IdentityDependencies
 }
 
 // defaultVersion mirrors cmd/platform-api's `var version = "dev"` default so
@@ -109,6 +113,12 @@ func NewRouter(deps Dependencies) http.Handler {
 	})
 
 	router.GET("/readyz", readinessHandler(deps.Readiness))
+
+	// The identity callback is an internal route outside the OpenAPI
+	// contract, registered (like /livez) before the NoRoute/NoMethod
+	// problem mappings; it stays unregistered entirely when no identity
+	// assembly is wired.
+	registerIdentityRoutes(router, deps.Identity)
 
 	router.NoRoute(func(c *gin.Context) {
 		WriteProblem(c, newProblem(http.StatusNotFound, CodeNotFound))

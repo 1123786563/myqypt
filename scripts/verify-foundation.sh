@@ -7,7 +7,8 @@
 #   POLICY       make policy-check (architecture dependency policy)
 #   UNIT         go test ./... -count=1 -skip ^TestContract
 #   CONTRACT     go test ./internal/transport/http -run ^TestContract -count=1
-#   INTEGRATION  go test ./internal/adapter/postgres -count=1 — TEST_DATABASE_URL
+#   INTEGRATION  go test ./internal/adapter/postgres -count=1 plus the black-box
+#                identity acceptance (issue #101 ruling 9) — TEST_DATABASE_URL
 #                must be set; an unset variable FAILS the phase (vacuum
 #                acceptance is refused, never skipped green)
 #   FRONTEND     pnpm --dir web typecheck+test+build+verify:static — requires
@@ -126,8 +127,12 @@ run_one_phase() {
         echo "INTEGRATION: TEST_DATABASE_URL is not set; refusing vacuum acceptance — phase FAILS (no silent skip)" >&2
         rc=1
       else
-        go test ./internal/adapter/postgres -count=1
-        rc=$?
+        if go test ./internal/adapter/postgres -count=1; then
+          go test ./cmd/platform-api -run '^TestPlatformAPIIdentity' -count=1
+          rc=$?
+        else
+          rc=1
+        fi
       fi
       ;;
     FRONTEND)
@@ -173,7 +178,7 @@ phase_command_string() {
     POLICY) echo "make policy-check" ;;
     UNIT) echo "go test ./... -count=1 -skip ^TestContract" ;;
     CONTRACT) echo "go test ./internal/transport/http -run ^TestContract -count=1" ;;
-    INTEGRATION) echo "go test ./internal/adapter/postgres -count=1" ;;
+    INTEGRATION) echo "go test ./internal/adapter/postgres -count=1 && go test ./cmd/platform-api -run ^TestPlatformAPIIdentity -count=1" ;;
     FRONTEND) echo "pnpm --dir web run typecheck && pnpm --dir web run test && pnpm --dir web run build && pnpm --dir web run verify:static" ;;
     META) echo "meta:revision-and-tool-versions" ;;
   esac

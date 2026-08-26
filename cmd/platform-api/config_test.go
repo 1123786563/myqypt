@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
 	"github.com/1123786563/myqypt/internal/platform/observability"
 	"github.com/1123786563/myqypt/internal/transport/http/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // TestObservabilityConfigDefaults covers the empty-environment path: unset
@@ -107,5 +109,71 @@ func TestSecurityConfigMiddlewareCompatible(t *testing.T) {
 	handler := middleware.Security(*config)
 	if handler == nil {
 		t.Fatal("middleware.Security(securityConfig()) = nil")
+	}
+}
+
+// TestIdentityDependenciesUnconfigured covers the fail-closed assembly:
+// with either PLATFORM_IDENTITY_OIDC variable unset the identity callback
+// stays unwired (nil assembly — the route is never registered).
+func TestIdentityDependenciesUnconfigured(t *testing.T) {
+	cases := []struct {
+		name     string
+		issuer   string
+		audience string
+	}{
+		{"both unset", "", ""},
+		{"issuer only", "https://issuer.example.test", ""},
+		{"audience only", "", "platform-api"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PLATFORM_IDENTITY_OIDC_ISSUER", tc.issuer)
+			t.Setenv("PLATFORM_IDENTITY_OIDC_AUDIENCE", tc.audience)
+
+			if deps := identityDependencies(nil); deps != nil {
+				t.Fatalf("identityDependencies(nil) = %+v, want nil", deps)
+			}
+		})
+	}
+}
+
+// TestIdentityDependenciesConfiguredWithoutDatabase covers the enabled
+// assembly without a pool: the endpoint is wired with the lazy verifier but
+// no repository, so every callback fails closed with 503 (design ruling 6).
+func TestIdentityDependenciesConfiguredWithoutDatabase(t *testing.T) {
+	t.Setenv("PLATFORM_IDENTITY_OIDC_ISSUER", "https://issuer.example.test")
+	t.Setenv("PLATFORM_IDENTITY_OIDC_AUDIENCE", "platform-api")
+
+	deps := identityDependencies(nil)
+	if deps == nil {
+		t.Fatal("identityDependencies(nil) = nil, want a wired assembly")
+	}
+	if deps.Verifier == nil {
+		t.Fatal("Verifier = nil, want the lazy OIDC verifier")
+	}
+	if deps.Repository != nil {
+		t.Fatalf("Repository = %T, want nil without a database pool", deps.Repository)
+	}
+}
+
+// TestIdentityDependenciesConfiguredWithDatabase covers the fully wired
+// assembly: a pool (opened lazily, no connection attempt) yields a
+// repository alongside the verifier.
+func TestIdentityDependenciesConfiguredWithDatabase(t *testing.T) {
+	t.Setenv("PLATFORM_IDENTITY_OIDC_ISSUER", "https://issuer.example.test")
+	t.Setenv("PLATFORM_IDENTITY_OIDC_AUDIENCE", "platform-api")
+
+	pool, err := pgxpool.New(context.Background(), "postgres://identity-config-test:pw@127.0.0.1:5/identity?sslmode=disable")
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	defer pool.Close()
+
+	deps := identityDependencies(pool)
+	if deps == nil {
+		t.Fatal("identityDependencies(pool) = nil, want a wired assembly")
+	}
+	if deps.Repository == nil {
+		t.Fatal("Repository = nil, want the identity repository")
 	}
 }
