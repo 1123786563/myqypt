@@ -2,7 +2,9 @@ services:
   platform-api:
     image: golang:1.26.7
     working_dir: /workspace
-    command: go run ./cmd/platform-api serve
+    # serve never migrates (ruling from #101), so migrations run as an
+    # explicit chained step before the listener starts.
+    command: sh -c "go run ./cmd/platform-api migrate up && go run ./cmd/platform-api serve"
     environment:
       PLATFORM_API_ADDR: :8080
       PLATFORM_POSTGRES_HOST: postgres
@@ -10,13 +12,36 @@ services:
       PLATFORM_POSTGRES_DB: ${PLATFORM_POSTGRES_DB:?PLATFORM_POSTGRES_DB is required}
       PLATFORM_POSTGRES_USER: ${PLATFORM_POSTGRES_USER:?PLATFORM_POSTGRES_USER is required}
       PLATFORM_POSTGRES_PASSWORD: ${PLATFORM_POSTGRES_PASSWORD:?PLATFORM_POSTGRES_PASSWORD is required}
+      DATABASE_URL: postgres://${PLATFORM_POSTGRES_USER}:${PLATFORM_POSTGRES_PASSWORD}@postgres:5432/${PLATFORM_POSTGRES_DB}?sslmode=disable
+      # The identity callback registers only when both issuer and audience
+      # are set (fail-closed assembly in cmd/platform-api).
+      PLATFORM_IDENTITY_OIDC_ISSUER: ${PLATFORM_IDENTITY_OIDC_ISSUER:-http://casdoor:8000}
+      PLATFORM_IDENTITY_OIDC_AUDIENCE: ${PLATFORM_IDENTITY_OIDC_AUDIENCE:-t01-acceptance}
+      # Container toolchain hygiene: pin the local go, and route modules
+      # through a reachable proxy (the default proxy.golang.org is not
+      # reachable from this network).
+      GOTOOLCHAIN: local
+      GOPROXY: https://goproxy.cn,direct
+      GOSUMDB: "off"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      # The golang image ships no curl/wget; probe /livez over bash's
+      # /dev/tcp and require the 200 status line.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /livez HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n' >&3; grep -q 'HTTP/1.1 200' <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      # First start pays the full module download + compile before the
+      # listener exists; the named module cache volume makes later starts
+      # skip the download but not the compile.
+      start_period: 15m
     ports:
       - "8080:8080"
     volumes:
       - ../..:/workspace
+      - platform-go-module-cache:/go/pkg/mod
   postgres:
     image: postgres:17
     environment:
@@ -58,3 +83,4 @@ services:
       - "8000:8000"
 volumes:
   platform-postgres-data:
+  platform-go-module-cache:

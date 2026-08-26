@@ -1,0 +1,51 @@
+# T01 acceptance journey: one real Casdoor-issued RS256 token binds exactly
+# one stable platform user through POST /internal/v1/identity/callback.
+# Semantics map 1:1 to the aggregator plan's ruling 1: journey parameters
+# live in inputs, acceptance checks in assertions[].name/want. Values here
+# are non-secret stable test identifiers and endpoints only; credentials
+# never appear in this file.
+id: t01-identity-binding
+seam: lighthouse-black-box
+timeout: 5m
+inputs:
+  issuer: http://casdoor:8000
+  casdoor_api_base: http://localhost:8000
+  callback_base: http://localhost:8080
+  callback_path: /internal/v1/identity/callback
+  casdoor_organization: t01-accept-org
+  casdoor_application_name: t01-acceptance-app
+  casdoor_client_id: t01-acceptance
+  casdoor_username: t01-accept
+  replay_deliveries: 1
+  postgres_host: localhost
+  postgres_port: 5432
+  postgres_database: platform
+  postgres_user: platform
+assertions:
+  - name: first_bind_status
+    want:
+      status: 201
+  - name: first_bind_body_user_id_uuid
+    want:
+      canonical_uuid: true
+  - name: replay_status
+    want:
+      status: 200
+  - name: replay_body_identical
+    want:
+      identical: true
+  - name: binding_count
+    want:
+      rows: 1
+  - name: binding_subject_matches_token
+    want:
+      matches: true
+  - name: denial_missing_authorization_status
+    want:
+      status: 401
+  - name: denial_tampered_signature_status
+    want:
+      status: 401
+  - name: denial_binding_count_delta
+    want:
+      rows: 0
