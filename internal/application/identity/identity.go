@@ -27,11 +27,28 @@ type User struct {
 // issuer or subject is missing.
 var ErrUnverifiedIdentity = errors.New("identity: unverified identity")
 
+// ErrInvalidToken reports a bearer token that is malformed, uses a
+// disallowed algorithm, fails cryptographic verification, or carries
+// claims the configured verification policy rejects.
+var ErrInvalidToken = errors.New("identity: invalid token")
+
+// ErrProviderUnavailable reports that the identity provider could not
+// be reached or served an unusable discovery or key document.
+var ErrProviderUnavailable = errors.New("identity: provider unavailable")
+
 // Repository is the persistence port for identity binding: it returns the
 // platform user already bound to (identityProvider, subject), or creates
 // the user and its binding atomically on first delivery.
 type Repository interface {
 	BindOrLoad(ctx context.Context, identityProvider, subject string) (User, error)
+}
+
+// Verifier is the verification port for bearer tokens issued by the
+// configured identity provider: Verify returns the identity the token
+// attests, ErrInvalidToken for tokens that fail validation, and
+// ErrProviderUnavailable when the provider cannot serve its keys.
+type Verifier interface {
+	Verify(ctx context.Context, rawToken string) (VerifiedIdentity, error)
 }
 
 // verifiedIdentityKey is the unexported context key type, so values set by
