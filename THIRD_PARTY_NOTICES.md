@@ -158,6 +158,55 @@ are rejected in authored sources (`pnpm --dir web verify:forbidden`).
   the sheet's slide-in/slide-out and the overlay/content enter/exit
   animations work through the CSS subset added under item 9.
 
+## cmdk 与 shadcn/ui Command 模式 — 命令面板
+
+- Dependency: `cmdk@1.1.1` (exact pin, MIT licensed), declared in `web/package.json`
+  and resolved in `web/pnpm-lock.yaml`; the package distributes its own license
+  text and is not vendored into this repository.
+- `web/src/components/platform/command-palette.tsx` adapts the structural and
+  styling patterns of the canonical `command.tsx` published by the shadcn/ui
+  project at the same pinned revision as the primitives above
+  (`8d6553a7f5b11d87b8968ec47479ec310e4c09af`; at that revision the canonical
+  file also contains `CommandDialog` — there is no separate command-dialog
+  file). The same revision-drift caveat applies: deltas are recorded against
+  this exact SHA.
+- Complete list of local differences from the canonical `command.tsx`:
+  1. This is a platform component (`components/platform/`), not a `components/ui/`
+     primitive: it composes `@radix-ui/react-dialog` directly (the dependency
+     already present for the Sheet primitive) instead of the canonical file's
+     `@/registry/new-york-v4/ui/dialog` wrapper, which this repository does not
+     have. The dialog shell (top-anchored centered overlay + content with
+     fade-in/out) is re-authored from the canonical `CommandDialog` /
+     dialog-content pattern, including sr-only `DialogTitle` /
+     `DialogDescription` for accessibility.
+  2. The command list is fed via an explicit `commands` prop
+     (id/label/group/keywords/onSelect); the component knows nothing about
+     routes or features — navigation happens in the caller's callbacks.
+  3. The `SearchIcon` import from `lucide-react` is replaced by a minimal
+     inline SVG component with the same geometry, per this repository's policy
+     of not depending on `lucide-react` (same discipline as the Sheet copy's
+     `XIcon`).
+  4. UI copy is Chinese: sr-only dialog title `命令面板`, sr-only description,
+     input placeholder `搜索命令…`, and the empty state `没有匹配的结果`;
+     group headings come from the `commands` prop.
+  5. The `Command`, `CommandInput`, `CommandList`, `CommandEmpty`,
+     `CommandGroup`, and `CommandItem` class strings largely carry over from
+     the canonical file (token-level classes such as `bg-popover`,
+     `data-[selected=true]:bg-accent`, and the `[&_[cmdk-group-heading]]`
+     sub-selectors). The canonical `CommandDialog`'s
+     `**:data-[slot=command-input-wrapper]:h-12 …` override block is dropped
+     because the dialog shell is re-authored; the input wrapper keeps the
+     canonical `CommandInput` base height (`h-9`).
+  6. Unused canonical exports are not carried over: `CommandShortcut`,
+     `CommandSeparator`, and `CommandLoading` have no consumer here.
+  7. The `cn` utility import path is `../lib/utils` instead of the canonical
+     `@/lib/utils` alias; formatting normalized by Prettier (single quotes, no
+     semicolons).
+- Functional status: type-to-filter, arrow-key cycling, and Enter execution come
+  from `cmdk` itself; Escape-to-close and focus restoration come from
+  `@radix-ui/react-dialog`. Reduced-motion handling is provided by the
+  `prefers-reduced-motion` rule in `web/src/styles/app.css`.
+
 ## go-admin — backend engineering patterns
 
 - Upstream project: <https://github.com/go-admin-team/go-admin>
@@ -253,10 +302,12 @@ at the revision recorded above):
 - `satnaing/shadcn-admin` — engineering configuration patterns and theming
   approach: `Copyright (c) 2024 Sat Naing`
 - `shadcn/ui` — the UI primitive copies at `web/src/components/ui/`
-  (`button.tsx`, `dropdown-menu.tsx`, `sheet.tsx`, `tooltip.tsx`):
+  (`button.tsx`, `dropdown-menu.tsx`, `sheet.tsx`, `tooltip.tsx`) and the
+  Command-palette pattern adaptation at
+  `web/src/components/platform/command-palette.tsx`:
   `Copyright (c) 2023 shadcn`
 - `go-admin-team/go-admin` — backend engineering patterns: `Copyright (c) 2026
-  go-admin-team`
+go-admin-team`
 
 The verbatim license texts for the two extraction sources recorded in
 `docs/upstream/provenance.yaml` are preserved at

@@ -77,6 +77,13 @@ const ALLOWED_STORAGE_KEYS = new Set([
   // artifact, so a static marketing site may keep it in localStorage (used by
   // web/src/root.tsx and web/src/components/theme-toggle.tsx).
   'ui-theme',
+  // 'myqypt.appearance.v1' persists only the console appearance preferences as a
+  // versioned three-field JSON object ({ theme: 'light'|'dark'|'system',
+  // density: 'comfortable'|'compact', sidebarCollapsed: boolean }). It is not a
+  // credential, session, or tracking artifact (used by
+  // web/src/components/platform/appearance-preferences.tsx, its appearance-store
+  // module, and the pre-paint script in web/src/root.tsx).
+  'myqypt.appearance.v1',
 ])
 
 // One regex per forbidden literal or marker, checked line by line so each violation
