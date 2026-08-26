@@ -1,20 +1,37 @@
 package httptransport
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/1123786563/myqypt/internal/application/readiness"
 	"github.com/1123786563/myqypt/internal/transport/http/api"
+	"github.com/1123786563/myqypt/internal/transport/http/middleware"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
 	ginmiddleware "github.com/oapi-codegen/gin-middleware"
+	otelgin "go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 )
 
 // Dependencies carries the transport-level configuration for NewRouter.
-// Readiness is optional: when absent, /readyz fails closed (503).
+// Readiness is optional: when absent, /readyz fails closed (503). Routes is
+// a test seam for registering extra routes after the middleware assembly
+// (nil keeps production wiring unchanged). Logger enables the access-log
+// middleware when non-nil. Security configures CORS; when nil, the security
+// headers stay on with CORS disabled (an empty origin allowlist).
+// TracerProvider feeds the otelgin tracing middleware; nil selects an
+// explicit noop provider (the otel global is never read).
 type Dependencies struct {
-	Version   string
-	Readiness *readiness.Service
+	Version        string
+	Readiness      *readiness.Service
+	Routes         func(*gin.Engine)
+	Logger         *slog.Logger
+	Security       *middleware.SecurityConfig
+	TracerProvider trace.TracerProvider
 }
 
 // defaultVersion mirrors cmd/platform-api's `var version = "dev"` default so
@@ -22,13 +39,15 @@ type Dependencies struct {
 // version (the SystemStatus schema requires version minLength 1).
 const defaultVersion = "dev"
 
-// NewRouter builds the platform HTTP transport. The middleware order is:
-// request-ID middleware (engine-wide, so every response is correlatable),
+// NewRouter builds the platform HTTP transport. The middleware order is
+// fixed: request ID → security headers/CORS → tracing → access log (when a
+// Logger is injected) → panic recovery, all engine-wide so every response is
+// correlatable, traced, hardened and never crashes the connection. Then come
 // OpenAPI request validation and the strict contract handlers (scoped to the
-// contract paths), and finally Problem Details mappings for unmatched routes
-// and methods. /livez and /readyz stay outside the OpenAPI contract as
-// operational endpoints: /livez is served verbatim, /readyz reports
-// dependency states only.
+// contract paths), Problem Details mappings for unmatched routes and
+// methods, and finally the Routes seam. /livez and /readyz stay outside the
+// OpenAPI contract as operational endpoints: /livez is served verbatim,
+// /readyz reports dependency states only.
 func NewRouter(deps Dependencies) http.Handler {
 	version := deps.Version
 	if version == "" {
@@ -36,7 +55,38 @@ func NewRouter(deps Dependencies) http.Handler {
 	}
 	router := gin.New()
 	router.HandleMethodNotAllowed = true
-	router.Use(RequestID())
+
+	securityConfig := middleware.SecurityConfig{}
+	if deps.Security != nil {
+		securityConfig = *deps.Security
+	}
+	tracerProvider := deps.TracerProvider
+	if tracerProvider == nil {
+		tracerProvider = tracenoop.NewTracerProvider()
+	}
+	router.Use(
+		middleware.RequestID(),
+		middleware.Security(securityConfig),
+		otelgin.Middleware("platform-api",
+			// Everything otelgin needs is injected: the tracer provider
+			// (an explicit noop instance when Dependencies carries none),
+			// a noop meter provider (this issue wires metrics assembly
+			// only — no HTTP metric instrumentation), and fixed W3C
+			// propagators. The otel globals are never consulted.
+			otelgin.WithTracerProvider(tracerProvider),
+			otelgin.WithMeterProvider(metricnoop.NewMeterProvider()),
+			otelgin.WithPropagators(propagation.NewCompositeTextMapPropagator(
+				propagation.TraceContext{},
+				propagation.Baggage{},
+			)),
+		),
+	)
+	if deps.Logger != nil {
+		router.Use(middleware.AccessLog(deps.Logger))
+	}
+	router.Use(middleware.Recovery(func(c *gin.Context, status int, code string) {
+		WriteProblem(c, newProblem(status, code))
+	}))
 
 	swagger, err := api.GetSpec()
 	if err != nil {
@@ -66,6 +116,13 @@ func NewRouter(deps Dependencies) http.Handler {
 	router.NoMethod(func(c *gin.Context) {
 		WriteProblem(c, newProblem(http.StatusMethodNotAllowed, CodeMethodNotAllowed))
 	})
+
+	// The Routes seam registers additional routes after the middleware
+	// assembly so black-box tests can exercise the full chain (e.g. a
+	// panicking handler). Production wiring leaves it nil.
+	if deps.Routes != nil {
+		deps.Routes(router)
+	}
 	return router
 }
 

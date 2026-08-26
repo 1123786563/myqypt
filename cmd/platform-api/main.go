@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,15 +17,24 @@ import (
 	"github.com/1123786563/myqypt/internal/adapter/postgres"
 	"github.com/1123786563/myqypt/internal/application/readiness"
 	"github.com/1123786563/myqypt/internal/platform/cli"
+	"github.com/1123786563/myqypt/internal/platform/observability"
 	"github.com/1123786563/myqypt/internal/platform/runtime"
 	httptransport "github.com/1123786563/myqypt/internal/transport/http"
+	"github.com/1123786563/myqypt/internal/transport/http/middleware"
 )
 
 const defaultAddress = ":8080"
 const listenAddressFileEnv = "PLATFORM_API_ADDR_FILE"
 
+// allowedOriginsEnv carries the CORS origin allowlist, comma-separated.
+const allowedOriginsEnv = "PLATFORM_API_ALLOWED_ORIGINS"
+
 // readinessCheckTimeout bounds each /readyz dependency check.
 const readinessCheckTimeout = 5 * time.Second
+
+// observabilityShutdownTimeout bounds the telemetry flush once the HTTP
+// listener has drained.
+const observabilityShutdownTimeout = 5 * time.Second
 
 var version = "dev"
 
@@ -58,7 +69,53 @@ func listenAddress() string {
 	return defaultAddress
 }
 
+// observabilityConfig reads the standard OTEL_EXPORTER_OTLP_ENDPOINT (empty
+// means no exporter, a network-free local run) plus the service identity
+// with platform defaults. Only the composition root reads these variables.
+func observabilityConfig() observability.Config {
+	return observability.Config{
+		ServiceName:           envOrDefault("OTEL_SERVICE_NAME", "platform-api"),
+		ServiceVersion:        version,
+		DeploymentEnvironment: envOrDefault("PLATFORM_DEPLOYMENT_ENVIRONMENT", "development"),
+		OTLPEndpoint:          os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+	}
+}
+
+func envOrDefault(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
+// securityConfig reads the CORS origin allowlist from
+// PLATFORM_API_ALLOWED_ORIGINS (controller ruling addition to design ruling
+// 10). Blank or unset yields an empty allowlist — fail-closed: security
+// headers stay on, no origin receives a CORS grant.
+func securityConfig() *middleware.SecurityConfig {
+	return &middleware.SecurityConfig{AllowedOrigins: parseAllowedOrigins(os.Getenv(allowedOriginsEnv))}
+}
+
+// parseAllowedOrigins splits the comma-separated origin allowlist, trimming
+// surrounding whitespace and dropping empty entries.
+func parseAllowedOrigins(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var origins []string
+	for _, entry := range strings.Split(raw, ",") {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			origins = append(origins, entry)
+		}
+	}
+	return origins
+}
+
 func serve(ctx context.Context) error {
+	resources, err := observability.New(ctx, observabilityConfig())
+	if err != nil {
+		return fmt.Errorf("serve: %w", err)
+	}
 	// Wiring readiness before the listener keeps an unparseable DATABASE_URL
 	// a startup failure with no listener to clean up, while an unreachable
 	// or missing database never blocks startup.
@@ -76,10 +133,18 @@ func serve(ctx context.Context) error {
 		_ = listener.Close()
 		return err
 	}
-	return runtime.Serve(ctx, listener, httptransport.NewRouter(httptransport.Dependencies{
-		Version:   version,
-		Readiness: readinessService,
+	serveErr := runtime.Serve(ctx, listener, httptransport.NewRouter(httptransport.Dependencies{
+		Version:        version,
+		Readiness:      readinessService,
+		Logger:         resources.Logger,
+		TracerProvider: resources.TracerProvider,
+		Security:       securityConfig(),
 	}), runtime.DefaultConfig())
+	// The listener has drained; flush telemetry with a fresh context because
+	// ctx is already cancelled by the shutdown signal at this point.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), observabilityShutdownTimeout)
+	defer cancel()
+	return errors.Join(serveErr, resources.Shutdown(shutdownCtx))
 }
 
 // newReadinessService wires the /readyz dependency checks. Without
