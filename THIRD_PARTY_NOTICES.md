@@ -95,9 +95,76 @@ are rejected in authored sources (`pnpm --dir web verify:forbidden`).
   above are deliberate functional reductions made for this extraction — no
   consumer needs `destructive` or `aria-invalid` styling today.
 
+## go-admin — backend engineering patterns
+
+- Upstream project: <https://github.com/go-admin-team/go-admin>
+  (`go-admin-team/go-admin`)
+- Reviewed revision: commit `1b7dcd843ce38fddc8c280fe3139e02735cf7574`
+- License: MIT (license text preserved byte-for-byte from the upstream
+  repository's `LICENSE.md` at the reviewed revision in
+  `LICENSES/go-admin-MIT.txt`)
+
+The Go foundation of this repository was produced under the same
+whitelist-extraction process as the frontend: the engineering ideas listed
+below were taken from the upstream review, while the upstream's product
+surface was deliberately left behind. The reviewed commit is a provenance
+record, not a sync target; any future upstream change must be re-reviewed as
+a new diff, never merged over these files.
+
+### Adopted from the upstream review
+
+1. **Gin router and HTTP middleware composition** — how routing, request-ID,
+   panic recovery, security-response headers, and CORS compose into one HTTP
+   transport; re-authored for this repository's OpenAPI-contract-first
+   transport.
+2. **Cobra multi-command organization** — the `platform-api`,
+   `platform-worker`, `migrate`, and `version` command shapes; re-authored
+   around an explicit composition root instead of the upstream's global
+   runtime.
+3. **Process startup discipline** — HTTP server timeouts, signal listening
+   and graceful shutdown, version-info injection, and the `/livez` / `/readyz`
+   endpoints; re-authored.
+4. **Object storage Adapter approach** — the upstream's cloud object-storage
+   adapters (OSS/OBS/Qiniu) understood as environment-injected
+   implementations behind an `ObjectStore` port; approach only — no cloud SDK
+   or adapter code is carried over, and none is introduced until the file
+   feature needs it.
+
+### Deliberately NOT copied from the upstream
+
+- **Business modules** — `app/admin`, `app/demo`, and `app/other` business
+  code, and the `SysUser`/`SysDept`/`SysPost`/`SysRole`/`SysMenu` models.
+- **Own authentication** — upstream login, captcha, JWT, and refresh-token
+  flows; this platform's identity stays on the Go/Keycloak side.
+- **Casbin** — no Casbin rule, Enforcer, or permission middleware.
+- **Host-based tenant routing** — no automatic tenant-DB selection from Host,
+  Header, Query, or Cookie.
+- **Generic CRUD machinery** — `common/actions`, the global GORM injection in
+  `common/apis`, and `common/global`.
+- **GORM stack** — GORM models/hooks and `AutoMigrate`; this repository uses
+  PostgreSQL with pgx/sqlc and explicit, versioned SQL migrations.
+- **Code generator and Form Builder** — no table-driven scaffolding.
+- **Swaggo** — no annotation-driven doc generation; OpenAPI 3.1
+  contract-first instead.
+- **Ops business** — upstream scheduled jobs, service monitoring, and
+  content-management features.
+- **Insecure defaults and demo data** — default admin, default password, and
+  demo seed data.
+- **Unused database drivers** — MySQL, SQLite, SQL Server.
+- **Conflicting org modeling** — Tenant/Organization/Department/Data-Scope
+  concepts that conflict with this platform's fact model.
+
+### Local modifications
+
+Zero verbatim copy: no upstream file, type, or function body was copied, so
+there is no copied code to modify. What was adopted is the engineering
+organization listed above, re-authored for this repository's architecture
+(`slog` logging, explicit dependency injection, PostgreSQL + pgx/sqlc,
+OpenAPI contract-first transport).
+
 ## MIT License
 
-Both upstream projects referenced above are licensed under the MIT License:
+All upstream projects referenced above are licensed under the MIT License:
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy of
 > this software and associated documentation files (the "Software"), to deal in
@@ -124,3 +191,9 @@ at the revision recorded above):
   approach: `Copyright (c) 2024 Sat Naing`
 - `shadcn/ui` — the Button component copy at `web/src/components/ui/button.tsx`:
   `Copyright (c) 2023 shadcn`
+- `go-admin-team/go-admin` — backend engineering patterns: `Copyright (c) 2026
+  go-admin-team`
+
+The verbatim license texts for the two extraction sources recorded in
+`docs/upstream/provenance.yaml` are preserved at
+`LICENSES/shadcn-admin-MIT.txt` and `LICENSES/go-admin-MIT.txt`.
