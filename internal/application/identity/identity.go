@@ -38,9 +38,11 @@ var ErrProviderUnavailable = errors.New("identity: provider unavailable")
 
 // Repository is the persistence port for identity binding: it returns the
 // platform user already bound to (identityProvider, subject), or creates
-// the user and its binding atomically on first delivery.
+// the user and its binding atomically on first delivery. The created flag
+// reports which path ran: true exactly when this call inserted a new user
+// and binding, false when an existing user was loaded.
 type Repository interface {
-	BindOrLoad(ctx context.Context, identityProvider, subject string) (User, error)
+	BindOrLoad(ctx context.Context, identityProvider, subject string) (User, bool, error)
 }
 
 // Verifier is the verification port for bearer tokens issued by the

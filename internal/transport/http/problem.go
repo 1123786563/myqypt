@@ -7,20 +7,24 @@ import (
 
 // Stable machine-readable problem codes returned by the HTTP transport.
 const (
-	CodeInvalidRequest   = "invalid_request"
-	CodeNotFound         = "not_found"
-	CodeMethodNotAllowed = "method_not_allowed"
-	CodeInternalError    = "internal_error"
+	CodeInvalidRequest        = "invalid_request"
+	CodeNotFound              = "not_found"
+	CodeMethodNotAllowed      = "method_not_allowed"
+	CodeUnauthorized          = "unauthorized"
+	CodeDependencyUnavailable = "dependency_unavailable"
+	CodeInternalError         = "internal_error"
 )
 
 // problemTypePrefix is the stable URI namespace for problem types.
 const problemTypePrefix = "https://api.myqypt.dev/problems/"
 
 var problemTitles = map[string]string{
-	CodeInvalidRequest:   "The request could not be understood.",
-	CodeNotFound:         "The requested resource was not found.",
-	CodeMethodNotAllowed: "The HTTP method is not allowed for this resource.",
-	CodeInternalError:    "An internal server error occurred.",
+	CodeInvalidRequest:        "The request could not be understood.",
+	CodeNotFound:              "The requested resource was not found.",
+	CodeMethodNotAllowed:      "The HTTP method is not allowed for this resource.",
+	CodeUnauthorized:          "The request lacks valid authentication credentials.",
+	CodeDependencyUnavailable: "A required dependency is unavailable.",
+	CodeInternalError:         "An internal server error occurred.",
 }
 
 // Problem is the transport's RFC 9457 application/problem+json payload. It

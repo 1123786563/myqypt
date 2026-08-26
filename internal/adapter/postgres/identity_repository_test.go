@@ -59,16 +59,22 @@ func TestBindIdempotentForRepeatedIssuerSubject(t *testing.T) {
 	const provider = "https://issuer-idempotent.test"
 	const subject = "subject-idempotent-1"
 
-	first, err := repo.BindOrLoad(ctx, provider, subject)
+	first, created, err := repo.BindOrLoad(ctx, provider, subject)
 	if err != nil {
 		t.Fatalf("first BindOrLoad: %v", err)
+	}
+	if !created {
+		t.Fatal("first BindOrLoad created = false, want true on the insert path")
 	}
 	if first.ID == "" {
 		t.Fatal("first BindOrLoad returned an empty user id")
 	}
-	second, err := repo.BindOrLoad(ctx, provider, subject)
+	second, createdAgain, err := repo.BindOrLoad(ctx, provider, subject)
 	if err != nil {
 		t.Fatalf("second BindOrLoad: %v", err)
+	}
+	if createdAgain {
+		t.Fatal("second BindOrLoad created = true, want false on the load path")
 	}
 
 	if first.ID != second.ID {
@@ -88,6 +94,7 @@ func TestConcurrentBindReturnsSameUser(t *testing.T) {
 
 	const goroutines = 16
 	users := make([]identity.User, goroutines)
+	createdFlags := make([]bool, goroutines)
 	errs := make([]error, goroutines)
 
 	var wg sync.WaitGroup
@@ -95,11 +102,12 @@ func TestConcurrentBindReturnsSameUser(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			users[i], errs[i] = repo.BindOrLoad(ctx, provider, subject)
+			users[i], createdFlags[i], errs[i] = repo.BindOrLoad(ctx, provider, subject)
 		}()
 	}
 	wg.Wait()
 
+	createdCount := 0
 	for i := range users {
 		if errs[i] != nil {
 			t.Fatalf("goroutine %d BindOrLoad: %v", i, errs[i])
@@ -110,6 +118,15 @@ func TestConcurrentBindReturnsSameUser(t *testing.T) {
 		if users[i].ID != users[0].ID {
 			t.Fatalf("goroutine %d user id = %q, want %q", i, users[i].ID, users[0].ID)
 		}
+		if createdFlags[i] {
+			createdCount++
+		}
+	}
+	// The advisory xact lock serializes the deliveries: exactly one
+	// transaction inserts (created=true) and every other one loads the
+	// row it committed (created=false).
+	if createdCount != 1 {
+		t.Fatalf("created flags = %d true among %d deliveries, want exactly 1", createdCount, goroutines)
 	}
 
 	assertBindingRows(t, ctx, db, provider, subject, 1)
@@ -125,13 +142,19 @@ func TestSameSubjectDifferentIssuersAreDistinctUsers(t *testing.T) {
 	const providerA = "https://issuer-distinct-a.test"
 	const providerB = "https://issuer-distinct-b.test"
 
-	userA, err := repo.BindOrLoad(ctx, providerA, subject)
+	userA, createdA, err := repo.BindOrLoad(ctx, providerA, subject)
 	if err != nil {
 		t.Fatalf("BindOrLoad issuer A: %v", err)
 	}
-	userB, err := repo.BindOrLoad(ctx, providerB, subject)
+	if !createdA {
+		t.Fatal("BindOrLoad issuer A created = false, want true on the insert path")
+	}
+	userB, createdB, err := repo.BindOrLoad(ctx, providerB, subject)
 	if err != nil {
 		t.Fatalf("BindOrLoad issuer B: %v", err)
+	}
+	if !createdB {
+		t.Fatal("BindOrLoad issuer B created = false, want true on the insert path")
 	}
 
 	if userA.ID == userB.ID {
