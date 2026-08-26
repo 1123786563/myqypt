@@ -35,17 +35,22 @@ export function AppearanceProvider({ children }: PropsWithChildren) {
     saveAppearance(appearance)
   }, [appearance])
 
-  // 主题应用到 <html> 的 dark 类；跟随系统时按当前配色求值
+  // 主题应用到 <html> 的 dark 类；跟随系统时按当前配色求值。
+  // 卸载时回收 dark 类，避免控制台主题泄漏到落地页路由
   React.useEffect(() => {
     const root = document.documentElement
     if (appearance.theme === 'dark') root.classList.add('dark')
     else if (appearance.theme === 'light') root.classList.remove('dark')
     else root.classList.toggle('dark', window.matchMedia('(prefers-color-scheme: dark)').matches)
+    return () => root.classList.remove('dark')
   }, [appearance.theme])
 
-  // 密度应用到 <html> 的 data-density 属性（app.css 提供紧凑档样式钩子）
+  // 密度应用到 <html> 的 data-density 属性（app.css 提供紧凑档样式钩子）；
+  // 卸载时一并回收该属性
   React.useEffect(() => {
-    document.documentElement.dataset.density = appearance.density
+    const root = document.documentElement
+    root.dataset.density = appearance.density
+    return () => root.removeAttribute('data-density')
   }, [appearance.density])
 
   const value = React.useMemo<ReturnType<typeof useAppearance>>(

@@ -26,7 +26,7 @@ const testNavigation: readonly NavigationGroup[] = [
 ]
 
 function renderShell(navigation: readonly NavigationGroup[] = testNavigation) {
-  render(
+  return render(
     <MemoryRouter initialEntries={['/app']}>
       <LocationProbe />
       <AppShell navigation={navigation} userMenu={<div>用户菜单</div>}>
@@ -234,6 +234,20 @@ describe('外观偏好', () => {
     fireEvent.click(screen.getByRole('menuitemradio', { name: '舒适' }))
     expect(document.documentElement.getAttribute('data-density')).toBe('comfortable')
     expect(readStoredAppearance().density).toBe('comfortable')
+  })
+
+  it('卸载 AppShell 后清理 <html> 上的 dark 类与 data-density 属性', () => {
+    const { unmount } = renderShell()
+    openAppearanceMenu()
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '深色' }))
+    openAppearanceMenu()
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '紧凑' }))
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(document.documentElement.getAttribute('data-density')).toBe('compact')
+
+    unmount()
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+    expect(document.documentElement.getAttribute('data-density')).toBeNull()
   })
 })
 

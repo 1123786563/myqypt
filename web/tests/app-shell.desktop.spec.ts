@@ -22,6 +22,44 @@ test.describe('/app 控制台（桌面）@desktop', () => {
     await expect(overview).toHaveAttribute('aria-current', 'page')
   })
 
+  test('折叠按钮收起侧边栏并持久化，刷新后保持，再次点击展开', async ({ page }) => {
+    await page.goto('/app')
+    // 等待 SPA 水合完成（按钮行为随 AppShell 挂载）
+    await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible()
+
+    const sidebar = page.locator('.app-sidebar')
+    await expect(sidebar).toBeVisible()
+    const expandedWidth = await sidebar.evaluate((el) =>
+      Number.parseFloat(getComputedStyle(el).width),
+    )
+    expect(expandedWidth).toBeGreaterThan(200)
+
+    const collapse = page.getByRole('button', { name: '折叠侧边栏' })
+    await expect(collapse).toHaveAttribute('aria-expanded', 'true')
+    await collapse.click()
+
+    await expect(page.locator('div[data-sidebar]')).toHaveAttribute('data-sidebar', 'collapsed')
+    const expand = page.getByRole('button', { name: '展开侧边栏' })
+    await expect(expand).toHaveAttribute('aria-expanded', 'false')
+    // 宽度有 0.2s 过渡，轮询等待收窄到折叠宽度（~64px）
+    await expect
+      .poll(() => sidebar.evaluate((el) => Number.parseFloat(getComputedStyle(el).width)))
+      .toBeLessThan(100)
+    // 折叠态按设计仅裁剪文字而不移出可访问性树（见 app.css 注释），
+    // Playwright 可见性不考虑祖先 overflow 裁剪，故用导航框宽度断言其收起
+    const nav = page.getByRole('navigation', { name: '主导航' })
+    await expect.poll(async () => (await nav.boundingBox())?.width ?? 0).toBeLessThan(100)
+
+    // 折叠状态写入本地存储，整页刷新后仍保持
+    await page.reload()
+    const expandAfterReload = page.getByRole('button', { name: '展开侧边栏' })
+    await expect(expandAfterReload).toBeVisible()
+    await expect(page.locator('div[data-sidebar]')).toHaveAttribute('data-sidebar', 'collapsed')
+
+    await expandAfterReload.click()
+    await expect(page.locator('div[data-sidebar]')).toHaveAttribute('data-sidebar', 'expanded')
+  })
+
   test('导航仅包含授权传入的总览入口', async ({ page }) => {
     await page.goto('/app')
     const nav = page.getByRole('navigation', { name: '主导航' })
