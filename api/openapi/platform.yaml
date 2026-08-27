@@ -18,7 +18,65 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SystemStatus"
+  /api/v1/tenants:
+    get:
+      operationId: listTenants
+      summary: List the tenants the authenticated user holds an active membership in.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: >-
+            Every tenant with an active membership for the authenticated user,
+            with the tenant kind and the membership role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantList"
+  /api/v1/tenant-context:
+    get:
+      operationId: getTenantContext
+      summary: Return the server-validated current tenant context selection.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: >-
+            The current selection, still backed by an active membership
+            (revocation invalidates a persisted selection on read).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelectedTenantContext"
+    put:
+      operationId: putTenantContext
+      summary: Select or switch the current tenant context.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantContextSelection"
+      responses:
+        "200":
+          description: >-
+            The persisted selection. The request is idempotent and a switch
+            is last-write-wins.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelectedTenantContext"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >-
+        Access token issued by the configured identity provider. Documentation
+        only: the OpenAPI validator does not enforce security; authentication
+        runs inside each handler.
   schemas:
     SystemStatus:
       type: object
@@ -35,3 +93,65 @@ components:
           type: string
           minLength: 1
           description: Build version of the running platform service.
+    TenantSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+        - kind
+        - role
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant's immutable identifier.
+        kind:
+          type: string
+          enum:
+            - personal
+            - business
+          description: The tenant kind (migration 000003 vocabulary).
+        role:
+          type: string
+          enum:
+            - owner
+            - admin
+            - billing_member
+            - member
+          description: The membership role the user holds in the tenant.
+    TenantList:
+      type: object
+      additionalProperties: false
+      required:
+        - tenants
+      properties:
+        tenants:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantSummary"
+          description: Every tenant with an active membership for the user.
+    TenantContextSelection:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant being selected.
+    SelectedTenantContext:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+        - selected_at
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The persisted, server-validated selected tenant.
+        selected_at:
+          type: string
+          format: date-time
+          description: When the selection was persisted or last switched.

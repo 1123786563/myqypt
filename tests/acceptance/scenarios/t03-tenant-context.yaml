@@ -1,0 +1,78 @@
+# T03 acceptance journey: the user explicitly selects a tenant context,
+# switches between their tenants, and every selection is validated against
+# an active membership server-side — a revocation invalidates the
+# persisted selection on read, and a tenant without an active membership
+# is an indistinguishable 404. Semantics map 1:1 to the aggregator plan's
+# ruling 8: journey parameters live in inputs, acceptance checks in
+# assertions[].name/want. Values here are non-secret stable test
+# identifiers and endpoints only; credentials never appear in this file.
+id: t03-tenant-context
+seam: lighthouse-tenant-context
+timeout: 5m
+inputs:
+  issuer: http://casdoor:8000
+  casdoor_api_base: http://localhost:8000
+  callback_base: http://localhost:8080
+  callback_path: /internal/v1/identity/callback
+  casdoor_organization: t03-accept-org
+  casdoor_application_name: t03-acceptance-app
+  casdoor_client_id: t03-acceptance
+  casdoor_username_a: t03-select-a
+  casdoor_username_b: t03-select-b
+  replay_deliveries: 1
+  postgres_host: localhost
+  postgres_port: 5432
+  postgres_database: platform
+  postgres_user: platform
+assertions:
+  - name: stale_state_zero_users
+    want:
+      rows: 0
+  - name: bind_user_a_status
+    want:
+      status: 201
+  - name: bind_user_b_status
+    want:
+      status: 201
+  - name: initial_list_count
+    want:
+      tenants: 1
+  - name: select_own_tenant_status
+    want:
+      status: 200
+  - name: select_replay_single_row
+    want:
+      rows: 1
+  - name: second_membership_list_count
+    want:
+      tenants: 2
+  - name: switch_to_b_status
+    want:
+      status: 200
+  - name: current_reflects_switch
+    want:
+      switched: true
+  - name: switch_back_status
+    want:
+      status: 200
+  - name: revoked_current_status
+    want:
+      status: 404
+  - name: revoked_list_count
+    want:
+      tenants: 1
+  - name: reselect_own_status
+    want:
+      status: 200
+  - name: cross_tenant_denied_status
+    want:
+      status: 404
+  - name: denial_row_delta
+    want:
+      rows: 0
+  - name: denial_missing_authorization_status
+    want:
+      status: 401
+  - name: denial_tampered_signature_status
+    want:
+      status: 401

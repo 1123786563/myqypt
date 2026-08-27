@@ -238,6 +238,21 @@ func (h erroringStatusHandler) GetSystemStatus(context.Context, api.GetSystemSta
 	return nil, errors.New(h.failure)
 }
 
+// The tenant-context operations exist only to satisfy the generated
+// StrictServerInterface; the error-hook test drives the system status
+// route exclusively.
+func (h erroringStatusHandler) ListTenants(context.Context, api.ListTenantsRequestObject) (api.ListTenantsResponseObject, error) {
+	return nil, errors.New(h.failure)
+}
+
+func (h erroringStatusHandler) GetTenantContext(context.Context, api.GetTenantContextRequestObject) (api.GetTenantContextResponseObject, error) {
+	return nil, errors.New(h.failure)
+}
+
+func (h erroringStatusHandler) PutTenantContext(context.Context, api.PutTenantContextRequestObject) (api.PutTenantContextResponseObject, error) {
+	return nil, errors.New(h.failure)
+}
+
 func TestStrictHandlerErrorWritesInternalErrorProblem(t *testing.T) {
 	useTestGinMode(t)
 	engine := gin.New()
