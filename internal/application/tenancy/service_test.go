@@ -46,6 +46,29 @@ type fakeRepository struct {
 	createTenant  tenancy.BusinessTenant
 	createCreated bool
 	createErr     error
+
+	// inviteInvitation/inviteCreated are the canned invitation result the
+	// fake serves; inviteErr (when non-nil) classifies the port rejection
+	// (ErrUserNotBound, ErrInviterNotAuthorized, ErrInvitationNotFound).
+	inviteInvitation tenancy.MembershipInvitation
+	inviteCreated    bool
+	inviteErr        error
+	inviteCalls      int
+
+	lastInviteVerified identity.VerifiedIdentity
+	lastInviteTenant   string
+	lastInviteSubject  string
+	lastInviteRole     string
+	lastInviteKey      string
+
+	// acceptMembership/acceptErr are the canned accept result and its
+	// classified port rejection.
+	acceptMembership tenancy.ActivatedMembership
+	acceptErr        error
+	acceptCalls      int
+
+	lastAcceptVerified identity.VerifiedIdentity
+	lastAcceptTenant   string
 }
 
 func (f *fakeRepository) ListMembershipTenants(_ context.Context, verified identity.VerifiedIdentity) ([]tenancy.TenantSummary, error) {
@@ -89,6 +112,33 @@ func (f *fakeRepository) CreateBusinessTenant(_ context.Context, verified identi
 	return f.createTenant, f.createCreated, nil
 }
 
+// InviteMember records the invitation delivery and serves the canned
+// (invitation, created) pair, keeping the T05 service contract testable
+// without a database.
+func (f *fakeRepository) InviteMember(_ context.Context, verified identity.VerifiedIdentity, tenantID, inviteeSubject, role string) (tenancy.MembershipInvitation, bool, error) {
+	f.inviteCalls++
+	f.lastInviteVerified = verified
+	f.lastInviteTenant = tenantID
+	f.lastInviteSubject = inviteeSubject
+	f.lastInviteRole = role
+	if f.inviteErr != nil {
+		return tenancy.MembershipInvitation{}, false, f.inviteErr
+	}
+	return f.inviteInvitation, f.inviteCreated, nil
+}
+
+// AcceptInvitation records the acceptance delivery and serves the canned
+// activated membership.
+func (f *fakeRepository) AcceptInvitation(_ context.Context, verified identity.VerifiedIdentity, tenantID string) (tenancy.ActivatedMembership, error) {
+	f.acceptCalls++
+	f.lastAcceptVerified = verified
+	f.lastAcceptTenant = tenantID
+	if f.acceptErr != nil {
+		return tenancy.ActivatedMembership{}, f.acceptErr
+	}
+	return f.acceptMembership, nil
+}
+
 // selectTestIdentity is the verified identity the service tests deliver.
 var selectTestIdentity = identity.VerifiedIdentity{
 	Issuer:  "https://issuer.tenancy.test",
@@ -100,9 +150,10 @@ const selectTestTenant = "0199cd8e-6c9f-7cc0-9d34-6a2b5f01e88a"
 // assertZeroPortCalls fails when the fake recorded any port call.
 func assertZeroPortCalls(t *testing.T, fake *fakeRepository) {
 	t.Helper()
-	if fake.listCalls != 0 || fake.currentCalls != 0 || fake.saveCalls != 0 || fake.createCalls != 0 {
-		t.Fatalf("port calls = list:%d current:%d save:%d create:%d, want all zero",
-			fake.listCalls, fake.currentCalls, fake.saveCalls, fake.createCalls)
+	if fake.listCalls != 0 || fake.currentCalls != 0 || fake.saveCalls != 0 || fake.createCalls != 0 ||
+		fake.inviteCalls != 0 || fake.acceptCalls != 0 {
+		t.Fatalf("port calls = list:%d current:%d save:%d create:%d invite:%d accept:%d, want all zero",
+			fake.listCalls, fake.currentCalls, fake.saveCalls, fake.createCalls, fake.inviteCalls, fake.acceptCalls)
 	}
 }
 
@@ -382,5 +433,202 @@ func TestServiceCreateBusinessTenantPropagatesUserNotBound(t *testing.T) {
 	}
 	if fake.createCalls != 1 {
 		t.Fatalf("port create calls = %d, want 1 (classification happens in the port)", fake.createCalls)
+	}
+}
+
+// inviteTestTenant is the tenant the invitation tests deliver; a fixed
+// canonical uuid keeps the pass-through assertions concrete.
+const inviteTestTenant = "0199cd8e-6c9f-7cc0-9d34-6a2b5f01e88d"
+
+// inviteTestInvitation is the canned invitation the fake serves; its
+// fixed timestamp pins the pass-through assertions below.
+var inviteTestInvitation = tenancy.MembershipInvitation{
+	TenantID:  inviteTestTenant,
+	Role:      "member",
+	Status:    "invited",
+	InvitedAt: time.Date(2026, 8, 28, 7, 8, 9, 0, time.UTC),
+}
+
+// TestServiceInviteMemberRejectsBeforeWrite proves the T05 front door
+// (design ruling 3–5): an unverified identity is rejected with
+// ErrUserRequired, a missing tenant with ErrTenantRequired, a missing
+// invitee subject with ErrInviteeSubjectRequired, a non-invitable role
+// (owner or an unknown string) with ErrRoleNotSupported, and a missing
+// idempotency key with ErrIdempotencyKeyRequired — all before a single
+// port call.
+func TestServiceInviteMemberRejectsBeforeWrite(t *testing.T) {
+	cases := []struct {
+		name           string
+		identity       identity.VerifiedIdentity
+		tenantID       string
+		inviteeSubject string
+		role           string
+		idempotencyKey string
+		wantErr        error
+	}{
+		{"unverified identity", identity.VerifiedIdentity{}, inviteTestTenant, "subject-invitee-1", "member", "key-1", tenancy.ErrUserRequired},
+		{"missing tenant", selectTestIdentity, "", "subject-invitee-1", "member", "key-1", tenancy.ErrTenantRequired},
+		{"missing invitee subject", selectTestIdentity, inviteTestTenant, "", "member", "key-1", tenancy.ErrInviteeSubjectRequired},
+		{"owner role not invitable", selectTestIdentity, inviteTestTenant, "subject-invitee-1", "owner", "key-1", tenancy.ErrRoleNotSupported},
+		{"unknown role", selectTestIdentity, inviteTestTenant, "subject-invitee-1", "queen", "key-1", tenancy.ErrRoleNotSupported},
+		{"missing idempotency key", selectTestIdentity, inviteTestTenant, "subject-invitee-1", "member", "", tenancy.ErrIdempotencyKeyRequired},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeRepository{}
+			service := tenancy.NewService(fake)
+
+			_, _, err := service.InviteMember(context.Background(), tc.identity, tc.tenantID, tc.inviteeSubject, tc.role, tc.idempotencyKey)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("InviteMember error = %v, want %v", err, tc.wantErr)
+			}
+			assertZeroPortCalls(t, fake)
+		})
+	}
+}
+
+// TestServiceInviteMemberPassesThrough proves the success path: the
+// service delivers exactly one port call with the verified inviter, the
+// tenant, the invitee subject, and the role — and no idempotency key,
+// because replay convergence rides the natural key (design ruling 2) —
+// returning the port's (invitation, created=true) pair unchanged.
+func TestServiceInviteMemberPassesThrough(t *testing.T) {
+	fake := &fakeRepository{inviteInvitation: inviteTestInvitation, inviteCreated: true}
+	service := tenancy.NewService(fake)
+
+	invitation, created, err := service.InviteMember(context.Background(), selectTestIdentity, inviteTestTenant, "subject-invitee-1", "member", "key-invite-1")
+	if err != nil {
+		t.Fatalf("InviteMember: %v", err)
+	}
+	if !created {
+		t.Fatal("created = false, want true on the insert path")
+	}
+	if invitation != inviteTestInvitation {
+		t.Fatalf("InviteMember = %+v, want the port invitation %+v", invitation, inviteTestInvitation)
+	}
+	if fake.inviteCalls != 1 {
+		t.Fatalf("port invite calls = %d, want 1", fake.inviteCalls)
+	}
+	if fake.lastInviteVerified != selectTestIdentity ||
+		fake.lastInviteTenant != inviteTestTenant ||
+		fake.lastInviteSubject != "subject-invitee-1" ||
+		fake.lastInviteRole != "member" ||
+		fake.lastInviteKey != "" {
+		t.Fatalf("port saw (%+v, %q, %q, %q, key=%q), want (%+v, %q, %q, %q, no key)",
+			fake.lastInviteVerified, fake.lastInviteTenant, fake.lastInviteSubject, fake.lastInviteRole, fake.lastInviteKey,
+			selectTestIdentity, inviteTestTenant, "subject-invitee-1", "member")
+	}
+}
+
+// TestServiceInviteMemberReplayPassesThrough proves the replay path: the
+// port's (invitation, created=false) pair — the natural-key convergence —
+// flows out unchanged.
+func TestServiceInviteMemberReplayPassesThrough(t *testing.T) {
+	fake := &fakeRepository{inviteInvitation: inviteTestInvitation, inviteCreated: false}
+	service := tenancy.NewService(fake)
+
+	invitation, created, err := service.InviteMember(context.Background(), selectTestIdentity, inviteTestTenant, "subject-invitee-1", "member", "key-invite-1")
+	if err != nil {
+		t.Fatalf("InviteMember: %v", err)
+	}
+	if created {
+		t.Fatal("created = true, want false on the replay path")
+	}
+	if invitation != inviteTestInvitation {
+		t.Fatalf("InviteMember = %+v, want the port invitation %+v", invitation, inviteTestInvitation)
+	}
+}
+
+// TestServiceInviteMemberPropagatesClassifiedRejections classifies the
+// port rejections: ErrUserNotBound (inviter or invitee never bound),
+// ErrInviterNotAuthorized (no active owner/admin membership), and
+// ErrInvitationNotFound (the invitee's membership row already exists in a
+// non-invited state) all flow out unchanged.
+func TestServiceInviteMemberPropagatesClassifiedRejections(t *testing.T) {
+	for _, err := range []error{tenancy.ErrUserNotBound, tenancy.ErrInviterNotAuthorized, tenancy.ErrInvitationNotFound} {
+		fake := &fakeRepository{inviteErr: err}
+		service := tenancy.NewService(fake)
+
+		if _, _, got := service.InviteMember(context.Background(), selectTestIdentity, inviteTestTenant, "subject-invitee-1", "member", "key-invite-1"); !errors.Is(got, err) {
+			t.Fatalf("InviteMember error = %v, want %v", got, err)
+		}
+		if fake.inviteCalls != 1 {
+			t.Fatalf("port invite calls = %d, want 1 (classification happens in the port)", fake.inviteCalls)
+		}
+	}
+}
+
+// acceptTestMembership is the canned activated membership the fake
+// serves for the accept path.
+var acceptTestMembership = tenancy.ActivatedMembership{
+	TenantID: inviteTestTenant,
+	Role:     "member",
+	Status:   "active",
+}
+
+// TestServiceAcceptInvitationRejectsBeforeWrite proves the accept front
+// door (design ruling 6): an unverified identity is rejected with
+// ErrUserRequired and a missing tenant with ErrTenantRequired — both
+// before a single port call.
+func TestServiceAcceptInvitationRejectsBeforeWrite(t *testing.T) {
+	cases := []struct {
+		name     string
+		identity identity.VerifiedIdentity
+		tenantID string
+		wantErr  error
+	}{
+		{"unverified identity", identity.VerifiedIdentity{}, inviteTestTenant, tenancy.ErrUserRequired},
+		{"missing tenant", selectTestIdentity, "", tenancy.ErrTenantRequired},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeRepository{}
+			service := tenancy.NewService(fake)
+
+			if _, err := service.AcceptInvitation(context.Background(), tc.identity, tc.tenantID); !errors.Is(err, tc.wantErr) {
+				t.Fatalf("AcceptInvitation error = %v, want %v", err, tc.wantErr)
+			}
+			assertZeroPortCalls(t, fake)
+		})
+	}
+}
+
+// TestServiceAcceptInvitationPassesThrough proves the accept success
+// path: exactly one port call with the verified invitee and the tenant,
+// returning the port's activated membership unchanged.
+func TestServiceAcceptInvitationPassesThrough(t *testing.T) {
+	fake := &fakeRepository{acceptMembership: acceptTestMembership}
+	service := tenancy.NewService(fake)
+
+	activated, err := service.AcceptInvitation(context.Background(), selectTestIdentity, inviteTestTenant)
+	if err != nil {
+		t.Fatalf("AcceptInvitation: %v", err)
+	}
+	if activated != acceptTestMembership {
+		t.Fatalf("AcceptInvitation = %+v, want the port membership %+v", activated, acceptTestMembership)
+	}
+	if fake.acceptCalls != 1 {
+		t.Fatalf("port accept calls = %d, want 1", fake.acceptCalls)
+	}
+	if fake.lastAcceptVerified != selectTestIdentity || fake.lastAcceptTenant != inviteTestTenant {
+		t.Fatalf("port saw (%+v, %q), want (%+v, %q)",
+			fake.lastAcceptVerified, fake.lastAcceptTenant, selectTestIdentity, inviteTestTenant)
+	}
+}
+
+// TestServiceAcceptInvitationPropagatesClassifiedRejections classifies
+// the port rejections: ErrUserNotBound and ErrInvitationNotFound flow
+// out unchanged.
+func TestServiceAcceptInvitationPropagatesClassifiedRejections(t *testing.T) {
+	for _, err := range []error{tenancy.ErrUserNotBound, tenancy.ErrInvitationNotFound} {
+		fake := &fakeRepository{acceptErr: err}
+		service := tenancy.NewService(fake)
+
+		if _, got := service.AcceptInvitation(context.Background(), selectTestIdentity, inviteTestTenant); !errors.Is(got, err) {
+			t.Fatalf("AcceptInvitation error = %v, want %v", got, err)
+		}
+		if fake.acceptCalls != 1 {
+			t.Fatalf("port accept calls = %d, want 1 (classification happens in the port)", fake.acceptCalls)
+		}
 	}
 }

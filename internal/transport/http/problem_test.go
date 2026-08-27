@@ -257,6 +257,14 @@ func (h erroringStatusHandler) CreateTenant(context.Context, api.CreateTenantReq
 	return nil, errors.New(h.failure)
 }
 
+func (h erroringStatusHandler) CreateMembershipInvitation(context.Context, api.CreateMembershipInvitationRequestObject) (api.CreateMembershipInvitationResponseObject, error) {
+	return nil, errors.New(h.failure)
+}
+
+func (h erroringStatusHandler) AcceptMembershipInvitation(context.Context, api.AcceptMembershipInvitationRequestObject) (api.AcceptMembershipInvitationResponseObject, error) {
+	return nil, errors.New(h.failure)
+}
+
 func TestStrictHandlerErrorWritesInternalErrorProblem(t *testing.T) {
 	useTestGinMode(t)
 	engine := gin.New()

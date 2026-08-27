@@ -22,6 +22,21 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for ActivatedMembershipStatus.
+const (
+	Active ActivatedMembershipStatus = "active"
+)
+
+// Valid indicates whether the value is a known member of the ActivatedMembershipStatus enum.
+func (e ActivatedMembershipStatus) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreatedTenantKind.
 const (
 	CreatedTenantKindBusiness CreatedTenantKind = "business"
@@ -46,6 +61,42 @@ const (
 func (e CreatedTenantRole) Valid() bool {
 	switch e {
 	case CreatedTenantRoleOwner:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MembershipInvitationStatus.
+const (
+	Invited MembershipInvitationStatus = "invited"
+)
+
+// Valid indicates whether the value is a known member of the MembershipInvitationStatus enum.
+func (e MembershipInvitationStatus) Valid() bool {
+	switch e {
+	case Invited:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MembershipRole.
+const (
+	MembershipRoleAdmin         MembershipRole = "admin"
+	MembershipRoleBillingMember MembershipRole = "billing_member"
+	MembershipRoleMember        MembershipRole = "member"
+)
+
+// Valid indicates whether the value is a known member of the MembershipRole enum.
+func (e MembershipRole) Valid() bool {
+	switch e {
+	case MembershipRoleAdmin:
+		return true
+	case MembershipRoleBillingMember:
+		return true
+	case MembershipRoleMember:
 		return true
 	default:
 		return false
@@ -109,6 +160,21 @@ func (e TenantSummaryRole) Valid() bool {
 	}
 }
 
+// ActivatedMembership defines model for ActivatedMembership.
+type ActivatedMembership struct {
+	// Role The non-owner membership role an invitation grants. owner is not invitable: ownership changes are out of scope for invitations.
+	Role MembershipRole `json:"role"`
+
+	// Status The activated state the acceptance transitioned into.
+	Status ActivatedMembershipStatus `json:"status"`
+
+	// TenantId The tenant of the accepted membership.
+	TenantId openapi_types.UUID `json:"tenant_id"`
+}
+
+// ActivatedMembershipStatus The activated state the acceptance transitioned into.
+type ActivatedMembershipStatus string
+
 // CreateTenantRequest defines model for CreateTenantRequest.
 type CreateTenantRequest struct {
 	// DisplayName The business tenant's human-readable display name.
@@ -138,6 +204,36 @@ type CreatedTenantKind string
 
 // CreatedTenantRole The membership role the creator holds in the new tenant.
 type CreatedTenantRole string
+
+// MembershipInvitation defines model for MembershipInvitation.
+type MembershipInvitation struct {
+	// InvitedAt When the invitation was created.
+	InvitedAt time.Time `json:"invited_at"`
+
+	// Role The non-owner membership role an invitation grants. owner is not invitable: ownership changes are out of scope for invitations.
+	Role MembershipRole `json:"role"`
+
+	// Status The pending state: the membership row exists but is not yet usable at the tenant-context seam.
+	Status MembershipInvitationStatus `json:"status"`
+
+	// TenantId The tenant the invitation grants membership in.
+	TenantId openapi_types.UUID `json:"tenant_id"`
+}
+
+// MembershipInvitationStatus The pending state: the membership row exists but is not yet usable at the tenant-context seam.
+type MembershipInvitationStatus string
+
+// MembershipInvitationRequest defines model for MembershipInvitationRequest.
+type MembershipInvitationRequest struct {
+	// InviteeSubject The invitee's external subject — the identity provider's sub claim of an already-bound user.
+	InviteeSubject string `json:"invitee_subject"`
+
+	// Role The non-owner membership role an invitation grants. owner is not invitable: ownership changes are out of scope for invitations.
+	Role MembershipRole `json:"role"`
+}
+
+// MembershipRole The non-owner membership role an invitation grants. owner is not invitable: ownership changes are out of scope for invitations.
+type MembershipRole string
 
 // SelectedTenantContext defines model for SelectedTenantContext.
 type SelectedTenantContext struct {
@@ -196,11 +292,20 @@ type CreateTenantParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// CreateMembershipInvitationParams defines parameters for CreateMembershipInvitation.
+type CreateMembershipInvitationParams struct {
+	// IdempotencyKey Client-chosen retry key, required before any write is attempted. Replay convergence rides the (tenant, invitee) natural key: a repeat delivery of a still-pending invitation answers 200 with the same invitation facts.
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // PutTenantContextJSONRequestBody defines body for PutTenantContext for application/json ContentType.
 type PutTenantContextJSONRequestBody = TenantContextSelection
 
 // CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
 type CreateTenantJSONRequestBody = CreateTenantRequest
+
+// CreateMembershipInvitationJSONRequestBody defines body for CreateMembershipInvitation for application/json ContentType.
+type CreateMembershipInvitationJSONRequestBody = MembershipInvitationRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -219,6 +324,12 @@ type ServerInterface interface {
 	// CreateTenant Create a business tenant owned by the authenticated user.
 	// (POST /api/v1/tenants)
 	CreateTenant(c *gin.Context, params CreateTenantParams)
+	// CreateMembershipInvitation Invite a bound user into a tenant as a non-owner member; the membership activates only after the invitee accepts (T05).
+	// (POST /api/v1/tenants/{tenantId}/membership-invitations)
+	CreateMembershipInvitation(c *gin.Context, tenantId openapi_types.UUID, params CreateMembershipInvitationParams)
+	// AcceptMembershipInvitation Accept the pending membership invitation as the invitee.
+	// (POST /api/v1/tenants/{tenantId}/membership-invitations/acceptance)
+	AcceptMembershipInvitation(c *gin.Context, tenantId openapi_types.UUID)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -325,6 +436,83 @@ func (siw *ServerInterfaceWrapper) CreateTenant(c *gin.Context) {
 	siw.Handler.CreateTenant(c, params)
 }
 
+// CreateMembershipInvitation operation middleware
+func (siw *ServerInterfaceWrapper) CreateMembershipInvitation(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateMembershipInvitationParams
+
+	headers := c.Request.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for Idempotency-Key, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter Idempotency-Key: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		siw.ErrorHandler(c, fmt.Errorf("Header parameter Idempotency-Key is required, but not found"), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateMembershipInvitation(c, tenantId, params)
+}
+
+// AcceptMembershipInvitation operation middleware
+func (siw *ServerInterfaceWrapper) AcceptMembershipInvitation(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.AcceptMembershipInvitation(c, tenantId)
+}
+
 // GinServerOptions provides options for the Gin server.
 type GinServerOptions struct {
 	BaseURL      string
@@ -357,6 +545,8 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/api/v1/tenants", wrapper.CreateTenant)
 	router.GET(options.BaseURL+"/api/v1/tenant-context", wrapper.GetTenantContext)
 	router.PUT(options.BaseURL+"/api/v1/tenant-context", wrapper.PutTenantContext)
+	router.POST(options.BaseURL+"/api/v1/tenants/:tenantId/membership-invitations", wrapper.CreateMembershipInvitation)
+	router.POST(options.BaseURL+"/api/v1/tenants/:tenantId/membership-invitations/acceptance", wrapper.AcceptMembershipInvitation)
 }
 
 type GetSystemStatusRequestObject struct {
@@ -481,6 +671,66 @@ func (response CreateTenant201JSONResponse) VisitCreateTenantResponse(w http.Res
 	return err
 }
 
+type CreateMembershipInvitationRequestObject struct {
+	TenantId openapi_types.UUID `json:"tenantId"`
+	Params   CreateMembershipInvitationParams
+	Body     *CreateMembershipInvitationJSONRequestBody
+}
+
+type CreateMembershipInvitationResponseObject interface {
+	VisitCreateMembershipInvitationResponse(w http.ResponseWriter) error
+}
+
+type CreateMembershipInvitation200JSONResponse MembershipInvitation
+
+func (response CreateMembershipInvitation200JSONResponse) VisitCreateMembershipInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMembershipInvitation201JSONResponse MembershipInvitation
+
+func (response CreateMembershipInvitation201JSONResponse) VisitCreateMembershipInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptMembershipInvitationRequestObject struct {
+	TenantId openapi_types.UUID `json:"tenantId"`
+}
+
+type AcceptMembershipInvitationResponseObject interface {
+	VisitAcceptMembershipInvitationResponse(w http.ResponseWriter) error
+}
+
+type AcceptMembershipInvitation200JSONResponse ActivatedMembership
+
+func (response AcceptMembershipInvitation200JSONResponse) VisitAcceptMembershipInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// GetSystemStatus Report whether the platform service is available.
@@ -498,6 +748,12 @@ type StrictServerInterface interface {
 	// CreateTenant Create a business tenant owned by the authenticated user.
 	// (POST /api/v1/tenants)
 	CreateTenant(ctx context.Context, request CreateTenantRequestObject) (CreateTenantResponseObject, error)
+	// CreateMembershipInvitation Invite a bound user into a tenant as a non-owner member; the membership activates only after the invitee accepts (T05).
+	// (POST /api/v1/tenants/{tenantId}/membership-invitations)
+	CreateMembershipInvitation(ctx context.Context, request CreateMembershipInvitationRequestObject) (CreateMembershipInvitationResponseObject, error)
+	// AcceptMembershipInvitation Accept the pending membership invitation as the invitee.
+	// (POST /api/v1/tenants/{tenantId}/membership-invitations/acceptance)
+	AcceptMembershipInvitation(ctx context.Context, request AcceptMembershipInvitationRequestObject) (AcceptMembershipInvitationResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx *gin.Context, request any) (any, error)
@@ -693,37 +949,109 @@ func (sh *strictHandler) CreateTenant(ctx *gin.Context, params CreateTenantParam
 	}
 }
 
+// CreateMembershipInvitation operation middleware
+func (sh *strictHandler) CreateMembershipInvitation(ctx *gin.Context, tenantId openapi_types.UUID, params CreateMembershipInvitationParams) {
+	var request CreateMembershipInvitationRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body CreateMembershipInvitationJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateMembershipInvitation(ctx, request.(CreateMembershipInvitationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateMembershipInvitation")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(CreateMembershipInvitationResponseObject); ok {
+		if err := validResponse.VisitCreateMembershipInvitationResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptMembershipInvitation operation middleware
+func (sh *strictHandler) AcceptMembershipInvitation(ctx *gin.Context, tenantId openapi_types.UUID) {
+	var request AcceptMembershipInvitationRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptMembershipInvitation(ctx, request.(AcceptMembershipInvitationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptMembershipInvitation")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(AcceptMembershipInvitationResponseObject); ok {
+		if err := validResponse.VisitAcceptMembershipInvitationResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"/w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

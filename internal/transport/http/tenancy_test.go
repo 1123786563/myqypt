@@ -14,6 +14,7 @@ import (
 	httptransport "github.com/1123786563/myqypt/internal/transport/http"
 	"github.com/1123786563/myqypt/internal/transport/http/api"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // stubTenancyRepository stubs the tenancy.Repository port with no
@@ -33,6 +34,21 @@ type stubTenancyRepository struct {
 	lastCreateName  string
 	lastCreateKey   string
 	lastCreateIdent identity.VerifiedIdentity
+
+	inviteInvitation  tenancy.MembershipInvitation
+	inviteCreated     bool
+	inviteErr         error
+	inviteCalls       int
+	lastInviteIdent   identity.VerifiedIdentity
+	lastInviteTenant  string
+	lastInviteSubject string
+	lastInviteRole    string
+
+	acceptMembership tenancy.ActivatedMembership
+	acceptErr        error
+	acceptCalls      int
+	lastAcceptIdent  identity.VerifiedIdentity
+	lastAcceptTenant string
 
 	listCalls    int
 	currentCalls int
@@ -79,6 +95,28 @@ func (r *stubTenancyRepository) CreateBusinessTenant(_ context.Context, verified
 		return tenancy.BusinessTenant{}, false, r.createErr
 	}
 	return r.createTenant, r.createCreated, nil
+}
+
+func (r *stubTenancyRepository) InviteMember(_ context.Context, verified identity.VerifiedIdentity, tenantID, inviteeSubject, role string) (tenancy.MembershipInvitation, bool, error) {
+	r.inviteCalls++
+	r.lastInviteIdent = verified
+	r.lastInviteTenant = tenantID
+	r.lastInviteSubject = inviteeSubject
+	r.lastInviteRole = role
+	if r.inviteErr != nil {
+		return tenancy.MembershipInvitation{}, false, r.inviteErr
+	}
+	return r.inviteInvitation, r.inviteCreated, nil
+}
+
+func (r *stubTenancyRepository) AcceptInvitation(_ context.Context, verified identity.VerifiedIdentity, tenantID string) (tenancy.ActivatedMembership, error) {
+	r.acceptCalls++
+	r.lastAcceptIdent = verified
+	r.lastAcceptTenant = tenantID
+	if r.acceptErr != nil {
+		return tenancy.ActivatedMembership{}, r.acceptErr
+	}
+	return r.acceptMembership, nil
 }
 
 // tenancyFixedSelectedAt is the deterministic selection timestamp the
@@ -643,6 +681,327 @@ func TestTenancyCreateTenantUnconfiguredFailsClosed(t *testing.T) {
 	router := newTenancyTestRouter(t, nil)
 
 	response := postCreateTenant(router, `{"display_name":"Corner Cafe"}`, "key-create-1", "Bearer "+bearerTestToken)
+
+	assertIdentityProblem(t, response, http.StatusServiceUnavailable, "dependency_unavailable")
+}
+
+// tenancyInvitedAt is the deterministic invitation timestamp the stub
+// serves; its JSON form pins the exact invitation bodies below.
+var tenancyInvitedAt = time.Date(2026, 8, 28, 7, 8, 9, 0, time.UTC)
+
+const (
+	tenancyInvitePath    = "/api/v1/tenants/" + tenancyBusinessTenant + "/membership-invitations"
+	tenancyAcceptPath    = "/api/v1/tenants/" + tenancyBusinessTenant + "/membership-invitations/acceptance"
+	tenancyInvitedAtJSON = `"2026-08-28T07:08:09Z"`
+)
+
+// stubbedInvitation is the canned port result the invitation tests serve.
+func stubbedInvitation() tenancy.MembershipInvitation {
+	return tenancy.MembershipInvitation{
+		TenantID:  tenancyBusinessTenant,
+		Role:      "member",
+		Status:    "invited",
+		InvitedAt: tenancyInvitedAt,
+	}
+}
+
+// stubbedActivation is the canned port result the acceptance tests serve.
+func stubbedActivation() tenancy.ActivatedMembership {
+	return tenancy.ActivatedMembership{
+		TenantID: tenancyBusinessTenant,
+		Role:     "member",
+		Status:   "active",
+	}
+}
+
+// postInvite issues one membership-invitation POST with the given JSON
+// body, Idempotency-Key header, and optional Authorization header.
+func postInvite(handler http.Handler, body, idempotencyKey, authorization string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, tenancyInvitePath, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", idempotencyKey)
+	if authorization != "" {
+		request.Header.Set("Authorization", authorization)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+// postAccept issues one invitation-acceptance POST with an optional
+// Authorization header.
+func postAccept(handler http.Handler, authorization string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, tenancyAcceptPath, nil)
+	if authorization != "" {
+		request.Header.Set("Authorization", authorization)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+// wantInvitationBody is the exact wire body of an invitation response in
+// the generated struct field order (invited_at, role, status, tenant_id)
+// with the json.Encoder newline.
+func wantInvitationBody() string {
+	return `{"invited_at":` + tenancyInvitedAtJSON +
+		`,"role":"member","status":"invited","tenant_id":"` + tenancyBusinessTenant + `"}` + "\n"
+}
+
+// wantActivationBody is the exact wire body of an acceptance response in
+// the generated struct field order (role, status, tenant_id) with the
+// json.Encoder newline.
+func wantActivationBody() string {
+	return `{"role":"member","status":"active","tenant_id":"` + tenancyBusinessTenant + `"}` + "\n"
+}
+
+// TestTenancyInviteCreatedShape proves the 201 invitation shape: every
+// contract field is echoed verbatim — tenant_id, role, status=invited,
+// RFC3339 invited_at — and the repository saw the verified inviter, the
+// tenant, the invitee subject, and the role, but never an idempotency
+// key (natural-key convergence).
+func TestTenancyInviteCreatedShape(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{inviteInvitation: stubbedInvitation(), inviteCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postInvite(router, `{"invitee_subject":"subject-invitee-1","role":"member"}`, "key-invite-1", "Bearer "+bearerTestToken)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+	if response.Body.String() != wantInvitationBody() {
+		t.Fatalf("body=%q want the exact payload %q", response.Body.String(), wantInvitationBody())
+	}
+	if got := response.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("content-type=%q want application/json", got)
+	}
+	if repository.inviteCalls != 1 {
+		t.Fatalf("repository invite calls = %d, want 1", repository.inviteCalls)
+	}
+	if repository.lastInviteIdent != verifiedTestIdentity ||
+		repository.lastInviteTenant != tenancyBusinessTenant ||
+		repository.lastInviteSubject != "subject-invitee-1" ||
+		repository.lastInviteRole != "member" {
+		t.Fatalf("repository saw (%+v, %q, %q, %q), want (the verified identity, the tenant, the subject, member)",
+			repository.lastInviteIdent, repository.lastInviteTenant, repository.lastInviteSubject, repository.lastInviteRole)
+	}
+}
+
+// TestTenancyInviteReplayIs200WithIdenticalBody proves the replay shape:
+// a converged delivery answers 200 with the byte-identical invitation
+// facts.
+func TestTenancyInviteReplayIs200WithIdenticalBody(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{inviteInvitation: stubbedInvitation(), inviteCreated: false}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postInvite(router, `{"invitee_subject":"subject-invitee-1","role":"member"}`, "key-invite-1", "Bearer "+bearerTestToken)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+	if response.Body.String() != wantInvitationBody() {
+		t.Fatalf("body=%q want the exact payload %q", response.Body.String(), wantInvitationBody())
+	}
+	if repository.inviteCalls != 1 {
+		t.Fatalf("repository invite calls = %d, want 1", repository.inviteCalls)
+	}
+}
+
+// TestTenancyInviteRejectsOwnerRole proves the transport contract: the
+// invitable-role enum excludes owner, so an owner-role invitation is a
+// 400 before a single repository call.
+func TestTenancyInviteRejectsOwnerRole(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{inviteInvitation: stubbedInvitation(), inviteCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postInvite(router, `{"invitee_subject":"subject-invitee-1","role":"owner"}`, "key-invite-1", "Bearer "+bearerTestToken)
+
+	assertIdentityProblem(t, response, http.StatusBadRequest, "invalid_request")
+	if repository.inviteCalls != 0 {
+		t.Fatalf("repository invite calls = %d, want 0 for an owner-role invitation", repository.inviteCalls)
+	}
+}
+
+// TestTenancyInviteRejectsMissingKeyHeader proves the transport
+// contract: the Idempotency-Key header is required; a delivery without
+// it is rejected by the validator with a 400 before the handler runs.
+func TestTenancyInviteRejectsMissingKeyHeader(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{inviteInvitation: stubbedInvitation(), inviteCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	request := httptest.NewRequest(http.MethodPost, tenancyInvitePath,
+		strings.NewReader(`{"invitee_subject":"subject-invitee-1","role":"member"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+bearerTestToken)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	assertIdentityProblem(t, response, http.StatusBadRequest, "invalid_request")
+	if repository.inviteCalls != 0 {
+		t.Fatalf("repository invite calls = %d, want 0 without the key header", repository.inviteCalls)
+	}
+}
+
+// TestTenancyInviteClassifiedRejectionsAreNotFound proves the no-oracle
+// mapping: an unbound inviter or invitee (ErrUserNotBound), an
+// unauthorized inviter (ErrInviterNotAuthorized), and an
+// already-resolved membership (ErrInvitationNotFound) are
+// indistinguishable 404s.
+func TestTenancyInviteClassifiedRejectionsAreNotFound(t *testing.T) {
+	for _, err := range []error{tenancy.ErrUserNotBound, tenancy.ErrInviterNotAuthorized, tenancy.ErrInvitationNotFound} {
+		verifier := &stubVerifier{identity: verifiedTestIdentity}
+		repository := &stubTenancyRepository{inviteErr: err}
+		router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+		response := postInvite(router, `{"invitee_subject":"subject-invitee-1","role":"member"}`, "key-invite-1", "Bearer "+bearerTestToken)
+
+		assertIdentityProblem(t, response, http.StatusNotFound, "not_found")
+		if repository.inviteCalls != 1 {
+			t.Fatalf("repository invite calls = %d, want 1 (classification happens in the port)", repository.inviteCalls)
+		}
+	}
+}
+
+// TestTenancyInviteRejectsMissingAuthorization proves the 401 gate:
+// without credentials the invitation path never reaches the repository.
+func TestTenancyInviteRejectsMissingAuthorization(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{inviteInvitation: stubbedInvitation(), inviteCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postInvite(router, `{"invitee_subject":"subject-invitee-1","role":"member"}`, "key-invite-1", "")
+
+	assertIdentityProblem(t, response, http.StatusUnauthorized, "unauthorized")
+	if repository.inviteCalls != 0 {
+		t.Fatalf("repository invite calls = %d, want 0 without credentials", repository.inviteCalls)
+	}
+}
+
+// TestTenancyInviteRejectsTamperedBearer proves the 401 gate for a
+// present-but-malformed Authorization header.
+func TestTenancyInviteRejectsTamperedBearer(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{inviteInvitation: stubbedInvitation(), inviteCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postInvite(router, `{"invitee_subject":"subject-invitee-1","role":"member"}`, "key-invite-1", "bearer "+bearerTestToken)
+
+	assertIdentityProblem(t, response, http.StatusUnauthorized, "unauthorized")
+	if repository.inviteCalls != 0 {
+		t.Fatalf("repository invite calls = %d, want 0 behind a malformed header", repository.inviteCalls)
+	}
+}
+
+// TestTenancyInviteUnconfiguredFailsClosed proves the fail-closed 503:
+// the invitation path stays registered and answers with the dependency
+// problem when no tenancy assembly is wired.
+func TestTenancyInviteUnconfiguredFailsClosed(t *testing.T) {
+	router := newTenancyTestRouter(t, nil)
+
+	response := postInvite(router, `{"invitee_subject":"subject-invitee-1","role":"member"}`, "key-invite-1", "Bearer "+bearerTestToken)
+
+	assertIdentityProblem(t, response, http.StatusServiceUnavailable, "dependency_unavailable")
+}
+
+// TestTenancyInviteDefensiveNilBody proves the handler's defense in
+// depth: a nil body that somehow slipped past the validator is a 400,
+// never a panic. The strict method is invoked directly because the wire
+// path cannot express the shape.
+func TestTenancyInviteDefensiveNilBody(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{inviteInvitation: stubbedInvitation(), inviteCreated: true}
+	handler := httptransport.TenancyHandler{Dependencies: wiredTenancyDeps(verifier, repository)}
+
+	useTestGinMode(t)
+	recorder := httptest.NewRecorder()
+	gc, _ := gin.CreateTestContext(recorder)
+	gc.Request = httptest.NewRequest(http.MethodPost, tenancyInvitePath, nil)
+	gc.Request.Header.Set("Authorization", "Bearer "+bearerTestToken)
+
+	if _, err := handler.CreateMembershipInvitation(gc, api.CreateMembershipInvitationRequestObject{
+		TenantId: uuid.MustParse(tenancyBusinessTenant),
+		Params: api.CreateMembershipInvitationParams{
+			IdempotencyKey: "key-invite-1",
+		},
+		Body: nil,
+	}); err != nil {
+		t.Fatalf("direct nil-body call returned error: %v", err)
+	}
+	assertIdentityProblem(t, recorder, http.StatusBadRequest, "invalid_request")
+	if repository.inviteCalls != 0 {
+		t.Fatalf("repository invite calls = %d, want 0 behind the defensive rejection", repository.inviteCalls)
+	}
+}
+
+// TestTenancyAcceptShape proves the acceptance shape: the activated
+// membership echoes tenant_id, role, and status=active, and the
+// repository saw the verified invitee and the tenant.
+func TestTenancyAcceptShape(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{acceptMembership: stubbedActivation()}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postAccept(router, "Bearer "+bearerTestToken)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+	if response.Body.String() != wantActivationBody() {
+		t.Fatalf("body=%q want the exact payload %q", response.Body.String(), wantActivationBody())
+	}
+	if repository.acceptCalls != 1 {
+		t.Fatalf("repository accept calls = %d, want 1", repository.acceptCalls)
+	}
+	if repository.lastAcceptIdent != verifiedTestIdentity || repository.lastAcceptTenant != tenancyBusinessTenant {
+		t.Fatalf("repository saw (%+v, %q), want (the verified identity, the tenant)",
+			repository.lastAcceptIdent, repository.lastAcceptTenant)
+	}
+}
+
+// TestTenancyAcceptClassifiedRejectionsAreNotFound proves the no-oracle
+// mapping on the acceptance path: an unbound invitee and a missing
+// invitation are indistinguishable 404s.
+func TestTenancyAcceptClassifiedRejectionsAreNotFound(t *testing.T) {
+	for _, err := range []error{tenancy.ErrUserNotBound, tenancy.ErrInvitationNotFound} {
+		verifier := &stubVerifier{identity: verifiedTestIdentity}
+		repository := &stubTenancyRepository{acceptErr: err}
+		router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+		response := postAccept(router, "Bearer "+bearerTestToken)
+
+		assertIdentityProblem(t, response, http.StatusNotFound, "not_found")
+		if repository.acceptCalls != 1 {
+			t.Fatalf("repository accept calls = %d, want 1 (classification happens in the port)", repository.acceptCalls)
+		}
+	}
+}
+
+// TestTenancyAcceptRejectsMissingAuthorization proves the 401 gate on
+// the acceptance path.
+func TestTenancyAcceptRejectsMissingAuthorization(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{acceptMembership: stubbedActivation()}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postAccept(router, "")
+
+	assertIdentityProblem(t, response, http.StatusUnauthorized, "unauthorized")
+	if repository.acceptCalls != 0 {
+		t.Fatalf("repository accept calls = %d, want 0 without credentials", repository.acceptCalls)
+	}
+}
+
+// TestTenancyAcceptUnconfiguredFailsClosed proves the fail-closed 503:
+// the acceptance path stays registered and answers with the dependency
+// problem when no tenancy assembly is wired.
+func TestTenancyAcceptUnconfiguredFailsClosed(t *testing.T) {
+	router := newTenancyTestRouter(t, nil)
+
+	response := postAccept(router, "Bearer "+bearerTestToken)
 
 	assertIdentityProblem(t, response, http.StatusServiceUnavailable, "dependency_unavailable")
 }

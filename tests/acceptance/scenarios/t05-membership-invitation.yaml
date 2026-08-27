@@ -1,0 +1,103 @@
+# T05 acceptance journey: the tenant's owner (or an admin) invites a
+# bound user, the membership activates only after the invitee accepts —
+# and until then the invited membership is invisible and unusable at the
+# tenant-context seam (AC1 observed black-box). The journey proves the
+# fresh invitation (201), the natural-key replay (200 with the identical
+# body), the pre-acceptance denial, the acceptance activation, the
+# immediate T03 list/select usability, and every refusal path — missing
+# Idempotency-Key, owner role, missing/tampered credentials, a
+# member-role inviter, a never-bound invitee subject, and a stranger's
+# acceptance — each without an oracle or a stray write. Semantics map
+# 1:1 to the implementation plan's rulings 1-10; journey parameters live
+# in inputs, acceptance checks in assertions[].name/want. Values here
+# are non-secret stable test identifiers and endpoints only; no tokens,
+# subjects, or credentials ever appear in this file.
+id: t05-membership-invitation
+seam: lighthouse-membership-invitation
+timeout: 5m
+inputs:
+  issuer: http://casdoor:8000
+  casdoor_api_base: http://localhost:8000
+  callback_base: http://localhost:8080
+  callback_path: /internal/v1/identity/callback
+  casdoor_organization: t05-accept-org
+  casdoor_application_name: t05-acceptance-app
+  casdoor_client_id: t05-acceptance
+  casdoor_username_a: t05-invite-a
+  casdoor_username_b: t05-invite-b
+  casdoor_username_c: t05-invite-c
+  display_name: t05-accept-team
+  idempotency_key_tenant: t05-key-tenant
+  idempotency_key_invite: t05-invite-key
+  invited_role: member
+  postgres_host: localhost
+  postgres_port: 5432
+  postgres_database: platform
+  postgres_user: platform
+assertions:
+  - name: stale_state_zero_users
+    want:
+      rows: 0
+  - name: bind_user_a_status
+    want:
+      status: 201
+  - name: create_tenant_status
+    want:
+      status: 201
+  - name: bind_user_b_status
+    want:
+      status: 201
+  - name: bind_user_c_status
+    want:
+      status: 201
+  - name: invitee_denied_select_before_invite
+    want:
+      status: 404
+  - name: invite_status
+    want:
+      status: 201
+  - name: replay_status_body_identical
+    want:
+      status: 200
+  - name: invited_denied_select
+    want:
+      status: 404
+  - name: accept_status
+    want:
+      status: 200
+  - name: accept_list_contains_tenant
+    want:
+      role: member
+  - name: accept_select_status
+    want:
+      status: 200
+  - name: denial_missing_idempotency_key_status
+    want:
+      status: 400
+  - name: denial_owner_role_status
+    want:
+      status: 400
+  - name: denial_missing_authorization_status
+    want:
+      status: 401
+  - name: denial_tampered_signature_status
+    want:
+      status: 401
+  - name: member_inviter_not_found_status
+    want:
+      status: 404
+  - name: member_inviter_zero_rows
+    want:
+      rows: 0
+  - name: unbound_subject_not_found_status
+    want:
+      status: 404
+  - name: unbound_subject_zero_rows
+    want:
+      rows: 0
+  - name: stranger_accept_not_found_status
+    want:
+      status: 404
+  - name: stranger_accept_zero_writes
+    want:
+      rows: 0

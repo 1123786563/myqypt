@@ -41,16 +41,32 @@ func TestMigrationRoundTrip(t *testing.T) {
 	}
 	assertSchemaHealth(t, ctx, db)
 
+	// Down-one narrows the memberships status CHECK back to
+	// ('active','revoked'), and PostgreSQL validates the narrowed CHECK
+	// against existing rows: a leftover status='invited' row from an
+	// earlier invitation test in this shared database would (correctly)
+	// refuse the rollback — production's own operator guard, not a
+	// migration defect. The round trip proves the migration pair on a
+	// pristine table set, so reset to the same zero baseline the
+	// repository fixtures use before rolling back.
+	if _, err := db.ExecContext(ctx,
+		`TRUNCATE TABLE business_tenant_creations, tenant_context_selections, memberships, billing_customers, tenants, identity_bindings, platform_users`,
+	); err != nil {
+		t.Fatalf("truncate business tables: %v", err)
+	}
+
 	if err := postgres.MigrateDownOne(ctx, db, migrations.FS); err != nil {
 		t.Fatalf("migrate down one: %v", err)
 	}
 	// Down-one rolls back exactly the latest applied version: the
-	// business tenants migration (000005) is undone while the tenant
-	// context selections migration (000004), the personal tenants
-	// migration (000003), the identity tables from the second
-	// migration, and the baseline marker from the first survive.
+	// membership invitations migration (000006) is undone while the
+	// business tenants migration (000005), the tenant context selections
+	// migration (000004), the personal tenants migration (000003), the
+	// identity tables from the second migration, and the baseline marker
+	// from the first survive.
 	assertSchemaHealth(t, ctx, db)
-	assertBusinessTenantMigrationUndone(t, ctx, db)
+	assertMembershipInvitationMigrationUndone(t, ctx, db)
+	assertBusinessTenantTablesSurviveDownOne(t, ctx, db)
 	assertTenantContextSelectionTableSurvivesDownOne(t, ctx, db)
 	assertPersonalTenantTablesSurviveDownOne(t, ctx, db)
 	assertIdentityTablesSurviveDownOne(t, ctx, db)
@@ -126,11 +142,45 @@ func assertSchemaHealth(t *testing.T, ctx context.Context, db *sql.DB) {
 	}
 }
 
-// assertBusinessTenantMigrationUndone asserts the business tenants
-// migration (000005) was rolled back: the business_tenant_creations
-// table is gone entirely and the tenants table lost the display_name
-// column the migration added.
-func assertBusinessTenantMigrationUndone(t *testing.T, ctx context.Context, db *sql.DB) {
+// assertMembershipInvitationMigrationUndone asserts the membership
+// invitations migration (000006) was rolled back: the memberships status
+// CHECK is back to the pre-T05 two-value vocabulary (no 'invited'), and
+// the widened vocabulary is gone. The CHECK text is read straight from
+// pg_constraint so the assertion is the database's own contract.
+func assertMembershipInvitationMigrationUndone(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+
+	var checkDefinition string
+	if err := db.QueryRowContext(ctx, `
+		SELECT pg_get_constraintdef(oid)
+		FROM pg_constraint
+		WHERE conrelid = 'memberships'::regclass
+		  AND conname = 'memberships_status_check'`).Scan(&checkDefinition); err != nil {
+		t.Fatalf("read memberships status check after down-one: %v", err)
+	}
+	if strings.Contains(checkDefinition, "invited") {
+		t.Fatalf("memberships status check after down-one = %q, want the pre-T05 vocabulary without 'invited'", checkDefinition)
+	}
+
+	// The narrowed CHECK must reject a status the T05 vocabulary allowed:
+	// an invited membership row cannot survive the rollback.
+	var invitedRejected bool
+	if err := db.QueryRowContext(ctx, `
+		SELECT NOT EXISTS (
+			SELECT 1 FROM memberships WHERE status = 'invited'
+		)`).Scan(&invitedRejected); err != nil {
+		t.Fatalf("query invited rows after down-one: %v", err)
+	}
+	if !invitedRejected {
+		t.Fatal("invited membership rows survive the down-one rollback, want none (the narrowed CHECK is the guard)")
+	}
+}
+
+// assertBusinessTenantTablesSurviveDownOne asserts the business tenants
+// migration (000005) is still applied after down-one rolled back only the
+// membership invitations migration (000006): the creation mapping table
+// keeps its columns and the tenants table keeps the display_name column.
+func assertBusinessTenantTablesSurviveDownOne(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 
 	var columns int
@@ -140,8 +190,8 @@ func assertBusinessTenantMigrationUndone(t *testing.T, ctx context.Context, db *
 		WHERE table_name = 'business_tenant_creations'`).Scan(&columns); err != nil {
 		t.Fatalf("query business_tenant_creations columns after down-one: %v", err)
 	}
-	if columns != 0 {
-		t.Fatalf("business_tenant_creations columns after down-one = %d, want 0", columns)
+	if columns == 0 {
+		t.Fatalf("business_tenant_creations columns after down-one = %d, want the table fully present", columns)
 	}
 
 	var displayName int
@@ -151,15 +201,15 @@ func assertBusinessTenantMigrationUndone(t *testing.T, ctx context.Context, db *
 		WHERE table_name = 'tenants' AND column_name = 'display_name'`).Scan(&displayName); err != nil {
 		t.Fatalf("query tenants display_name after down-one: %v", err)
 	}
-	if displayName != 0 {
-		t.Fatalf("tenants display_name columns after down-one = %d, want 0", displayName)
+	if displayName != 1 {
+		t.Fatalf("tenants display_name columns after down-one = %d, want 1", displayName)
 	}
 }
 
 // assertTenantContextSelectionTableSurvivesDownOne asserts the tenant
 // context selections migration (000004) is still applied after down-one
-// rolled back only the business tenants migration (000005): the table
-// keeps its full column set.
+// rolled back only the membership invitations migration (000006): the
+// table keeps its full column set.
 func assertTenantContextSelectionTableSurvivesDownOne(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 
@@ -176,8 +226,8 @@ func assertTenantContextSelectionTableSurvivesDownOne(t *testing.T, ctx context.
 }
 
 // assertPersonalTenantTablesSurviveDownOne asserts the personal tenants
-// migration (000003) is still applied after down-one rolled back only
-// the tenant context selections migration: the personal tenant tables
+// migration (000003) is still applied after down-one rolled back only the
+// membership invitations migration (000006): the personal tenant tables
 // keep their full column set.
 func assertPersonalTenantTablesSurviveDownOne(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
@@ -189,15 +239,18 @@ func assertPersonalTenantTablesSurviveDownOne(t *testing.T, ctx context.Context,
 		WHERE table_name IN ('tenants', 'billing_customers', 'memberships')`).Scan(&columns); err != nil {
 		t.Fatalf("query personal tenant tables columns: %v", err)
 	}
-	if columns != 13 {
-		t.Fatalf("personal tenant tables columns after down-one = %d, want 13 (all three tables fully present)", columns)
+	// 14 = tenants 5 (including the display_name column the surviving
+	// business tenants migration added) + billing_customers 3 +
+	// memberships 6.
+	if columns != 14 {
+		t.Fatalf("personal tenant tables columns after down-one = %d, want 14 (all three tables fully present)", columns)
 	}
 }
 
 // assertIdentityTablesSurviveDownOne asserts the identity bindings
 // migration (000002) is still applied after down-one rolled back only the
-// personal tenants migration: both identity tables keep their full
-// column set.
+// membership invitations migration (000006): both identity tables keep
+// their full column set.
 func assertIdentityTablesSurviveDownOne(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 

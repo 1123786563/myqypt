@@ -41,6 +41,26 @@ type BusinessTenant struct {
 	CreatedAt   time.Time
 }
 
+// MembershipInvitation is one pending membership invitation (Issue #6,
+// T05): the tenant, the non-owner role the invitation grants, the
+// invited status, and when the invitation was created. The membership
+// row IS the invitation record (design ruling 1), so an invitation that
+// is accepted becomes an active membership — never a second row.
+type MembershipInvitation struct {
+	TenantID  string
+	Role      string
+	Status    string
+	InvitedAt time.Time
+}
+
+// ActivatedMembership is the membership after the invitee accepted the
+// invitation: the single-row transition invited -> active is complete.
+type ActivatedMembership struct {
+	TenantID string
+	Role     string
+	Status   string
+}
+
 // ErrUserRequired reports an operation delivered without a verified
 // identity (empty issuer or subject): the platform user cannot be known.
 var ErrUserRequired = errors.New("tenancy: verified user required")
@@ -72,6 +92,28 @@ var ErrIdempotencyKeyRequired = errors.New("tenancy: idempotency key required")
 // unknown principal — no existence oracle.
 var ErrUserNotBound = errors.New("tenancy: verified identity is not bound to a platform user")
 
+// ErrInviteeSubjectRequired reports a membership invitation delivered
+// without the invitee's external subject: there is no principal to
+// address the invitation to.
+var ErrInviteeSubjectRequired = errors.New("tenancy: invitee subject required")
+
+// ErrRoleNotSupported reports a membership invitation asking for a role
+// that cannot be granted by invitation: owner is not invitable (the
+// partial one-active-owner index backs ownership changes being out of
+// scope) and unknown role strings are rejected outright.
+var ErrRoleNotSupported = errors.New("tenancy: role is not invitable")
+
+// ErrInviterNotAuthorized reports an invitation delivered by an actor
+// holding no active owner or admin membership in the tenant — a member,
+// a billing_member, a non-member, or a revoked member is
+// indistinguishable from an unknown tenant (no existence oracle).
+var ErrInviterNotAuthorized = errors.New("tenancy: inviter is not authorized to invite into the tenant")
+
+// ErrInvitationNotFound reports the absence of a usable invitation:
+// none was ever delivered, the membership already exists in another
+// state, or it belongs to someone else — indistinguishable by design.
+var ErrInvitationNotFound = errors.New("tenancy: membership invitation not found")
+
 // Repository is the persistence port for the tenant-context domain:
 // the active-membership tenant list, the re-validated current selection,
 // and the validated, transactional selection write.
@@ -99,4 +141,28 @@ type Repository interface {
 	// false on the replay path that loads the existing tenant. A never
 	// bound identity is rejected with ErrUserNotBound before any write.
 	CreateBusinessTenant(ctx context.Context, verified identity.VerifiedIdentity, displayName, idempotencyKey string) (BusinessTenant, bool, error)
+
+	// InviteMember delivers one membership invitation: the verified
+	// inviter names the invitee by inviteeSubject (the invitee's
+	// external subject, resolved through identity_bindings by issuer
+	// and subject — design ruling 3) for role in tenantID. The inviter
+	// must hold an active owner or admin membership in the tenant
+	// (design ruling 5); a never-bound inviter or invitee resolves to
+	// ErrUserNotBound. Replay convergence rides the natural key
+	// (tenant, invitee) — the repository never sees the idempotency
+	// key (design ruling 2): the first invitation answers created=true,
+	// any repeat delivery of a still-pending invitation answers the
+	// same facts with created=false, and an existing membership in any
+	// other state classifies as ErrInvitationNotFound (no oracle).
+	InviteMember(ctx context.Context, verified identity.VerifiedIdentity, tenantID, inviteeSubject, role string) (MembershipInvitation, bool, error)
+
+	// AcceptInvitation delivers the invitee-only acceptance of the
+	// pending invitation of tenantID: the adapter matches the verified
+	// identity's platform user against the pending invited row of that
+	// tenant (design ruling 6). Not invited, already resolved, or
+	// someone else's row classifies as ErrInvitationNotFound with zero
+	// writes; success is the single-row transition invited -> active,
+	// and replays converge onto the same activation without a second
+	// transition.
+	AcceptInvitation(ctx context.Context, verified identity.VerifiedIdentity, tenantID string) (ActivatedMembership, error)
 }
