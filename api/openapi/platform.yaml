@@ -108,6 +108,80 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SelectedTenantContext"
+  /api/v1/tenants/{tenantId}/membership-invitations:
+    post:
+      operationId: createMembershipInvitation
+      summary: >-
+        Invite a bound user into a tenant as a non-owner member; the
+        membership activates only after the invitee accepts (T05).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          description: The tenant the invitation grants membership in.
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >-
+            Client-chosen retry key, required before any write is
+            attempted. Replay convergence rides the (tenant, invitee)
+            natural key: a repeat delivery of a still-pending invitation
+            answers 200 with the same invitation facts.
+          schema:
+            type: string
+            pattern: "^([A-Za-z0-9-_.]{1,64})$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MembershipInvitationRequest"
+      responses:
+        "201":
+          description: >-
+            The invitation was created in this delivery: the membership row
+            with status invited, invisible to the tenant-context endpoints
+            until the invitee accepts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MembershipInvitation"
+        "200":
+          description: >-
+            A pending invitation for this (tenant, invitee) already exists;
+            the same invitation facts are echoed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MembershipInvitation"
+  /api/v1/tenants/{tenantId}/membership-invitations/acceptance:
+    post:
+      operationId: acceptMembershipInvitation
+      summary: Accept the pending membership invitation as the invitee.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          description: The tenant whose invitation is being accepted.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: >-
+            The accepted membership, now active. Replays converge onto the
+            same activation without a second transition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivatedMembership"
 components:
   securitySchemes:
     bearerAuth:
@@ -235,3 +309,71 @@ components:
           type: string
           const: owner
           description: The membership role the creator holds in the new tenant.
+    MembershipRole:
+      type: string
+      enum:
+        - admin
+        - billing_member
+        - member
+      description: >-
+        The non-owner membership role an invitation grants. owner is not
+        invitable: ownership changes are out of scope for invitations.
+    MembershipInvitationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - invitee_subject
+        - role
+      properties:
+        invitee_subject:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: >-
+            The invitee's external subject — the identity provider's sub
+            claim of an already-bound user.
+        role:
+          $ref: "#/components/schemas/MembershipRole"
+    MembershipInvitation:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+        - role
+        - status
+        - invited_at
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant the invitation grants membership in.
+        role:
+          $ref: "#/components/schemas/MembershipRole"
+        status:
+          type: string
+          const: invited
+          description: >-
+            The pending state: the membership row exists but is not yet
+            usable at the tenant-context seam.
+        invited_at:
+          type: string
+          format: date-time
+          description: When the invitation was created.
+    ActivatedMembership:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+        - role
+        - status
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant of the accepted membership.
+        role:
+          $ref: "#/components/schemas/MembershipRole"
+        status:
+          type: string
+          const: active
+          description: The activated state the acceptance transitioned into.

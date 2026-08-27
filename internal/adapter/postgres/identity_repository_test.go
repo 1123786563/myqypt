@@ -44,7 +44,7 @@ func openIdentityTestDB(t *testing.T) (*pgxpool.Pool, *sql.DB) {
 
 	// Reset the business tables to a clean state: on a persistent
 	// database, identity rows survive TestMigrationRoundTrip's down-one
-	// (it only rolls back 000005), so repeated runs — any -count, or a
+	// (it only rolls back 000006), so repeated runs — any -count, or a
 	// second bare run — would otherwise collide with stale rows. All
 	// seven tables are listed because TRUNCATE requires every table
 	// connected by foreign keys to be truncated together; uuid primary

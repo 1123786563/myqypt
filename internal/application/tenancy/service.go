@@ -76,3 +76,59 @@ func (s *Service) CreateBusinessTenant(ctx context.Context, verified identity.Ve
 	}
 	return s.repository.CreateBusinessTenant(ctx, verified, displayName, idempotencyKey)
 }
+
+// invitableRoles is the closed role set an invitation may grant
+// (design ruling 4): the CONTEXT.md non-owner membership roles. owner
+// is absent on purpose — the partial one-active-owner index backs
+// ownership changes staying out of this ticket.
+var invitableRoles = map[string]struct{}{
+	"admin":          {},
+	"billing_member": {},
+	"member":         {},
+}
+
+// InviteMember delivers one membership invitation: the verified inviter
+// names the invitee by external subject for role in tenantID. Every
+// rejection is classified before a single repository call: an identity
+// that was never verified end to end with ErrUserRequired, a missing
+// tenant with ErrTenantRequired, a missing invitee subject with
+// ErrInviteeSubjectRequired, a role outside the invitable set — owner
+// or an unknown string — with ErrRoleNotSupported, and a missing
+// idempotency key with ErrIdempotencyKeyRequired. The key is enforced
+// here and dropped before the port: replay convergence rides the
+// (tenant, invitee) natural key (design ruling 2), so the repository
+// signature carries no key.
+func (s *Service) InviteMember(ctx context.Context, verified identity.VerifiedIdentity, tenantID, inviteeSubject, role, idempotencyKey string) (MembershipInvitation, bool, error) {
+	if verified.Issuer == "" || verified.Subject == "" {
+		return MembershipInvitation{}, false, ErrUserRequired
+	}
+	if tenantID == "" {
+		return MembershipInvitation{}, false, ErrTenantRequired
+	}
+	if inviteeSubject == "" {
+		return MembershipInvitation{}, false, ErrInviteeSubjectRequired
+	}
+	if _, ok := invitableRoles[role]; !ok {
+		return MembershipInvitation{}, false, ErrRoleNotSupported
+	}
+	if idempotencyKey == "" {
+		return MembershipInvitation{}, false, ErrIdempotencyKeyRequired
+	}
+	return s.repository.InviteMember(ctx, verified, tenantID, inviteeSubject, role)
+}
+
+// AcceptInvitation delivers the invitee-only acceptance of the pending
+// invitation of tenantID. An identity that was never verified end to
+// end is rejected with ErrUserRequired and a missing tenant with
+// ErrTenantRequired, both before a single repository call; the
+// repository's ErrUserNotBound and ErrInvitationNotFound flow out
+// unchanged.
+func (s *Service) AcceptInvitation(ctx context.Context, verified identity.VerifiedIdentity, tenantID string) (ActivatedMembership, error) {
+	if verified.Issuer == "" || verified.Subject == "" {
+		return ActivatedMembership{}, ErrUserRequired
+	}
+	if tenantID == "" {
+		return ActivatedMembership{}, ErrTenantRequired
+	}
+	return s.repository.AcceptInvitation(ctx, verified, tenantID)
+}

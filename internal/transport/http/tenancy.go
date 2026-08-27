@@ -81,22 +81,25 @@ func (h TenancyHandler) authenticateTenantUser(c *gin.Context) (identity.Verifie
 
 // tenancyServiceProblem maps an application tenancy error onto its stable
 // Problem Details response: a selection without an active membership, an
-// absent current selection, and an unbound creator are indistinguishable
-// 404s (design ruling 6 — no existence oracle), input-shaped rejections
-// map to 400, and the provider-unavailable dependency to 503; everything
-// else stays an opaque 500.
+// absent current selection, an unbound principal, an unauthorized
+// inviter, and a missing invitation are indistinguishable 404s (no
+// existence oracle), input-shaped rejections map to 400, and the
+// provider-unavailable dependency to 503; everything else stays an
+// opaque 500.
 func tenancyServiceProblem(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, tenancy.ErrNotAnActiveMember):
-		WriteProblem(c, newProblem(http.StatusNotFound, CodeNotFound))
-	case errors.Is(err, tenancy.ErrNoTenantContext):
-		WriteProblem(c, newProblem(http.StatusNotFound, CodeNotFound))
-	case errors.Is(err, tenancy.ErrUserNotBound):
+	case errors.Is(err, tenancy.ErrNotAnActiveMember),
+		errors.Is(err, tenancy.ErrNoTenantContext),
+		errors.Is(err, tenancy.ErrUserNotBound),
+		errors.Is(err, tenancy.ErrInviterNotAuthorized),
+		errors.Is(err, tenancy.ErrInvitationNotFound):
 		WriteProblem(c, newProblem(http.StatusNotFound, CodeNotFound))
 	case errors.Is(err, tenancy.ErrUserRequired),
 		errors.Is(err, tenancy.ErrTenantRequired),
 		errors.Is(err, tenancy.ErrDisplayNameRequired),
-		errors.Is(err, tenancy.ErrIdempotencyKeyRequired):
+		errors.Is(err, tenancy.ErrIdempotencyKeyRequired),
+		errors.Is(err, tenancy.ErrInviteeSubjectRequired),
+		errors.Is(err, tenancy.ErrRoleNotSupported):
 		WriteProblem(c, newProblem(http.StatusBadRequest, CodeInvalidRequest))
 	case errors.Is(err, identity.ErrProviderUnavailable):
 		WriteProblem(c, newProblem(http.StatusServiceUnavailable, CodeDependencyUnavailable))
@@ -253,4 +256,88 @@ func (h TenancyHandler) CreateTenant(ctx context.Context, request api.CreateTena
 		return api.CreateTenant201JSONResponse(response), nil
 	}
 	return api.CreateTenant200JSONResponse(response), nil
+}
+
+// CreateMembershipInvitation serves POST
+// /api/v1/tenants/{tenantId}/membership-invitations: the authenticated
+// owner or admin invites a bound user into the tenant as a non-owner
+// member (T05). The first delivery of a (tenant, invitee) pair answers
+// 201 with status=invited; a repeat delivery of the still-pending
+// invitation answers 200 with the identical facts (natural-key
+// convergence — the Idempotency-Key header is mandatory but never
+// stored). An unbound inviter or invitee, an unauthorized inviter, and
+// an already-resolved membership are indistinguishable 404s;
+// input-shaped rejections are 400s.
+func (h TenancyHandler) CreateMembershipInvitation(ctx context.Context, request api.CreateMembershipInvitationRequestObject) (api.CreateMembershipInvitationResponseObject, error) {
+	gc, err := tenancyGinContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	verified, ok := h.authenticateTenantUser(gc)
+	if !ok {
+		return nil, nil
+	}
+	// The OpenAPI validator already rejects a missing body, a body
+	// without both fields, a role outside the invitable enum, and a
+	// missing or malformed Idempotency-Key header; a request that
+	// slipped past it is still treated as a bad request (defense in
+	// depth, mirroring CreateTenant).
+	if request.Body == nil || request.Params.IdempotencyKey == "" {
+		WriteProblem(gc, newProblem(http.StatusBadRequest, CodeInvalidRequest))
+		return nil, nil
+	}
+	invitation, created, err := tenancy.NewService(h.Dependencies.Repository).
+		InviteMember(gc.Request.Context(), verified, request.TenantId.String(),
+			request.Body.InviteeSubject, string(request.Body.Role), request.Params.IdempotencyKey)
+	if err != nil {
+		tenancyServiceProblem(gc, err)
+		return nil, nil
+	}
+	tenantID, err := tenancyUUID(invitation.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	response := api.MembershipInvitation{
+		TenantId:  tenantID,
+		Role:      api.MembershipRole(invitation.Role),
+		Status:    api.MembershipInvitationStatus(invitation.Status),
+		InvitedAt: invitation.InvitedAt,
+	}
+	if created {
+		return api.CreateMembershipInvitation201JSONResponse(response), nil
+	}
+	return api.CreateMembershipInvitation200JSONResponse(response), nil
+}
+
+// AcceptMembershipInvitation serves POST
+// /api/v1/tenants/{tenantId}/membership-invitations/acceptance: the
+// authenticated invitee accepts the pending invitation, completing the
+// single-row transition invited -> active. Replays converge onto the
+// same activation without a second transition. No pending invitation —
+// never invited, already resolved by someone else's facts, or revoked —
+// is an indistinguishable 404 with zero writes.
+func (h TenancyHandler) AcceptMembershipInvitation(ctx context.Context, request api.AcceptMembershipInvitationRequestObject) (api.AcceptMembershipInvitationResponseObject, error) {
+	gc, err := tenancyGinContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	verified, ok := h.authenticateTenantUser(gc)
+	if !ok {
+		return nil, nil
+	}
+	activated, err := tenancy.NewService(h.Dependencies.Repository).
+		AcceptInvitation(gc.Request.Context(), verified, request.TenantId.String())
+	if err != nil {
+		tenancyServiceProblem(gc, err)
+		return nil, nil
+	}
+	tenantID, err := tenancyUUID(activated.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	return api.AcceptMembershipInvitation200JSONResponse(api.ActivatedMembership{
+		TenantId: tenantID,
+		Role:     api.MembershipRole(activated.Role),
+		Status:   api.ActivatedMembershipStatus(activated.Status),
+	}), nil
 }
