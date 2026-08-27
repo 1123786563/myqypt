@@ -80,18 +80,23 @@ func (h TenancyHandler) authenticateTenantUser(c *gin.Context) (identity.Verifie
 }
 
 // tenancyServiceProblem maps an application tenancy error onto its stable
-// Problem Details response: a selection without an active membership and
-// an absent current selection are indistinguishable 404s (design ruling
-// 6 — no existence oracle), input-shaped rejections map to 400, and the
-// provider-unavailable dependency to 503; everything else stays an
-// opaque 500.
+// Problem Details response: a selection without an active membership, an
+// absent current selection, and an unbound creator are indistinguishable
+// 404s (design ruling 6 — no existence oracle), input-shaped rejections
+// map to 400, and the provider-unavailable dependency to 503; everything
+// else stays an opaque 500.
 func tenancyServiceProblem(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, tenancy.ErrNotAnActiveMember):
 		WriteProblem(c, newProblem(http.StatusNotFound, CodeNotFound))
 	case errors.Is(err, tenancy.ErrNoTenantContext):
 		WriteProblem(c, newProblem(http.StatusNotFound, CodeNotFound))
-	case errors.Is(err, tenancy.ErrUserRequired), errors.Is(err, tenancy.ErrTenantRequired):
+	case errors.Is(err, tenancy.ErrUserNotBound):
+		WriteProblem(c, newProblem(http.StatusNotFound, CodeNotFound))
+	case errors.Is(err, tenancy.ErrUserRequired),
+		errors.Is(err, tenancy.ErrTenantRequired),
+		errors.Is(err, tenancy.ErrDisplayNameRequired),
+		errors.Is(err, tenancy.ErrIdempotencyKeyRequired):
 		WriteProblem(c, newProblem(http.StatusBadRequest, CodeInvalidRequest))
 	case errors.Is(err, identity.ErrProviderUnavailable):
 		WriteProblem(c, newProblem(http.StatusServiceUnavailable, CodeDependencyUnavailable))
@@ -202,4 +207,50 @@ func (h TenancyHandler) PutTenantContext(ctx context.Context, request api.PutTen
 		TenantId:   selectedID,
 		SelectedAt: selected.SelectedAt,
 	}, nil
+}
+
+// CreateTenant serves POST /api/v1/tenants: the explicit creation of a
+// business tenant owned by the authenticated user. The first delivery of
+// an idempotency key answers 201; a replay of the same key converges
+// onto the already-created tenant and answers 200 with the same creation
+// facts (design ruling 5). An unbound creator is an indistinguishable
+// 404; input-shaped rejections are 400s.
+func (h TenancyHandler) CreateTenant(ctx context.Context, request api.CreateTenantRequestObject) (api.CreateTenantResponseObject, error) {
+	gc, err := tenancyGinContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	verified, ok := h.authenticateTenantUser(gc)
+	if !ok {
+		return nil, nil
+	}
+	// The OpenAPI validator already rejects a missing body, a body
+	// without a display name, and a missing Idempotency-Key header; a
+	// request that slipped past it is still treated as a bad request
+	// (defense in depth, design ruling 5).
+	if request.Body == nil || request.Params.IdempotencyKey == "" {
+		WriteProblem(gc, newProblem(http.StatusBadRequest, CodeInvalidRequest))
+		return nil, nil
+	}
+	tenant, created, err := tenancy.NewService(h.Dependencies.Repository).
+		CreateBusinessTenant(gc.Request.Context(), verified, request.Body.DisplayName, request.Params.IdempotencyKey)
+	if err != nil {
+		tenancyServiceProblem(gc, err)
+		return nil, nil
+	}
+	tenantID, err := tenancyUUID(tenant.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	response := api.CreatedTenant{
+		TenantId:    tenantID,
+		Kind:        api.CreatedTenantKindBusiness,
+		DisplayName: tenant.DisplayName,
+		CreatedAt:   tenant.CreatedAt,
+		Role:        api.CreatedTenantRoleOwner,
+	}
+	if created {
+		return api.CreateTenant201JSONResponse(response), nil
+	}
+	return api.CreateTenant200JSONResponse(response), nil
 }

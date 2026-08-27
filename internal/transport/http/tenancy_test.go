@@ -12,6 +12,8 @@ import (
 	"github.com/1123786563/myqypt/internal/application/identity"
 	"github.com/1123786563/myqypt/internal/application/tenancy"
 	httptransport "github.com/1123786563/myqypt/internal/transport/http"
+	"github.com/1123786563/myqypt/internal/transport/http/api"
+	"github.com/gin-gonic/gin"
 )
 
 // stubTenancyRepository stubs the tenancy.Repository port with no
@@ -23,6 +25,14 @@ type stubTenancyRepository struct {
 	listErr    error
 	currentErr error
 	saveErr    error
+
+	createTenant    tenancy.BusinessTenant
+	createCreated   bool
+	createErr       error
+	createCalls     int
+	lastCreateName  string
+	lastCreateKey   string
+	lastCreateIdent identity.VerifiedIdentity
 
 	listCalls    int
 	currentCalls int
@@ -58,6 +68,17 @@ func (r *stubTenancyRepository) SaveSelection(_ context.Context, verified identi
 		return tenancy.TenantContext{}, r.saveErr
 	}
 	return tenancy.TenantContext{TenantID: tenantID, SelectedAt: tenancyFixedSelectedAt}, nil
+}
+
+func (r *stubTenancyRepository) CreateBusinessTenant(_ context.Context, verified identity.VerifiedIdentity, displayName, idempotencyKey string) (tenancy.BusinessTenant, bool, error) {
+	r.createCalls++
+	r.lastCreateIdent = verified
+	r.lastCreateName = displayName
+	r.lastCreateKey = idempotencyKey
+	if r.createErr != nil {
+		return tenancy.BusinessTenant{}, false, r.createErr
+	}
+	return r.createTenant, r.createCreated, nil
 }
 
 // tenancyFixedSelectedAt is the deterministic selection timestamp the
@@ -386,4 +407,242 @@ func TestTenancyRepositoryErrorIsInternal(t *testing.T) {
 	if strings.Contains(response.Body.String(), errTenancySaveFailed.Error()) {
 		t.Fatalf("body leaks the repository error: %s", response.Body.String())
 	}
+}
+
+// tenancyBusinessTenant is the business tenant the stub serves; the fixed
+// timestamp reuses tenancyFixedSelectedAt whose JSON form pins the exact
+// creation bodies below.
+const tenancyBusinessTenant = "0199cd8e-6c9f-7cc0-9d34-6a2b5f01e88c"
+
+// stubbedBusinessTenant is the canned port result the create tests serve.
+func stubbedBusinessTenant() tenancy.BusinessTenant {
+	return tenancy.BusinessTenant{
+		TenantID:    tenancyBusinessTenant,
+		DisplayName: "Corner Cafe",
+		CreatedAt:   tenancyFixedSelectedAt,
+	}
+}
+
+// postCreateTenant issues one POST /api/v1/tenants with the given JSON
+// body, Idempotency-Key header, and optional Authorization header.
+func postCreateTenant(handler http.Handler, body, idempotencyKey, authorization string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, tenancyTenantsPath, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", idempotencyKey)
+	if authorization != "" {
+		request.Header.Set("Authorization", authorization)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+// wantCreatedTenantBody is the exact wire body of a create response in
+// the generated struct field order (created_at, display_name, kind, role,
+// tenant_id) with the json.Encoder newline.
+func wantCreatedTenantBody() string {
+	return `{"created_at":` + tenancySelectedAtJSON +
+		`,"display_name":"Corner Cafe","kind":"business","role":"owner","tenant_id":"` +
+		tenancyBusinessTenant + `"}` + "\n"
+}
+
+// TestTenancyCreateTenantCreatedShape proves the 201 creation shape
+// (design ruling 5): every contract field is echoed verbatim — tenant_id,
+// kind=business, display_name, RFC3339 created_at, role=owner.
+func TestTenancyCreateTenantCreatedShape(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{createTenant: stubbedBusinessTenant(), createCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postCreateTenant(router, `{"display_name":"Corner Cafe"}`, "key-create-1", "Bearer "+bearerTestToken)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+	if response.Body.String() != wantCreatedTenantBody() {
+		t.Fatalf("body=%q want the exact payload %q", response.Body.String(), wantCreatedTenantBody())
+	}
+	if got := response.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("content-type=%q want application/json", got)
+	}
+	if repository.createCalls != 1 {
+		t.Fatalf("repository create calls = %d, want 1", repository.createCalls)
+	}
+	if repository.lastCreateIdent != verifiedTestIdentity ||
+		repository.lastCreateName != "Corner Cafe" || repository.lastCreateKey != "key-create-1" {
+		t.Fatalf("repository saw (%+v, %q, %q), want (the verified identity, Corner Cafe, key-create-1)",
+			repository.lastCreateIdent, repository.lastCreateName, repository.lastCreateKey)
+	}
+}
+
+// TestTenancyCreateTenantReplayIs200WithSameTenant proves the replay
+// shape: a converged delivery answers 200 with the identical creation
+// facts (same tenant_id).
+func TestTenancyCreateTenantReplayIs200WithSameTenant(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{createTenant: stubbedBusinessTenant(), createCreated: false}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postCreateTenant(router, `{"display_name":"Corner Cafe"}`, "key-create-1", "Bearer "+bearerTestToken)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+	if response.Body.String() != wantCreatedTenantBody() {
+		t.Fatalf("body=%q want the exact payload %q", response.Body.String(), wantCreatedTenantBody())
+	}
+	if repository.createCalls != 1 {
+		t.Fatalf("repository create calls = %d, want 1", repository.createCalls)
+	}
+}
+
+// TestTenancyCreateTenantRejectsWhitespaceDisplayName proves the
+// write-path validation: a display name of only whitespace passes the
+// contract's minLength but is rejected by the service (trim) with a 400
+// before a single repository call.
+func TestTenancyCreateTenantRejectsWhitespaceDisplayName(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{createTenant: stubbedBusinessTenant(), createCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postCreateTenant(router, `{"display_name":"   "}`, "key-create-1", "Bearer "+bearerTestToken)
+
+	assertIdentityProblem(t, response, http.StatusBadRequest, "invalid_request")
+	if repository.createCalls != 0 {
+		t.Fatalf("repository create calls = %d, want 0 for a whitespace display name", repository.createCalls)
+	}
+}
+
+// TestTenancyCreateTenantRejectsMissingKeyHeader proves the transport
+// contract: the Idempotency-Key header is required; a delivery without
+// it is rejected by the validator with a 400 before the handler runs.
+func TestTenancyCreateTenantRejectsMissingKeyHeader(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{createTenant: stubbedBusinessTenant(), createCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	request := httptest.NewRequest(http.MethodPost, tenancyTenantsPath,
+		strings.NewReader(`{"display_name":"Corner Cafe"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+bearerTestToken)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	assertIdentityProblem(t, response, http.StatusBadRequest, "invalid_request")
+	if repository.createCalls != 0 {
+		t.Fatalf("repository create calls = %d, want 0 without the key header", repository.createCalls)
+	}
+}
+
+// TestTenancyCreateTenantDefensiveNilBodyAndKey proves the handler's
+// defense in depth (design ruling 5): a nil body or an empty
+// Idempotency-Key that somehow slipped past the validator is still a
+// 400, never a panic or a 500. The strict method is invoked directly
+// because the wire path cannot express these shapes.
+func TestTenancyCreateTenantDefensiveNilBodyAndKey(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{createTenant: stubbedBusinessTenant(), createCreated: true}
+	handler := httptransport.TenancyHandler{Dependencies: wiredTenancyDeps(verifier, repository)}
+
+	useTestGinMode(t)
+	recorder := httptest.NewRecorder()
+	gc, _ := gin.CreateTestContext(recorder)
+	gc.Request = httptest.NewRequest(http.MethodPost, tenancyTenantsPath, nil)
+	gc.Request.Header.Set("Authorization", "Bearer "+bearerTestToken)
+
+	if _, err := handler.CreateTenant(gc, api.CreateTenantRequestObject{
+		Params: api.CreateTenantParams{IdempotencyKey: "key-create-1"},
+		Body:   nil,
+	}); err != nil {
+		t.Fatalf("direct nil-body call returned error: %v", err)
+	}
+	assertIdentityProblem(t, recorder, http.StatusBadRequest, "invalid_request")
+
+	recorder = httptest.NewRecorder()
+	gc, _ = gin.CreateTestContext(recorder)
+	gc.Request = httptest.NewRequest(http.MethodPost, tenancyTenantsPath, nil)
+	gc.Request.Header.Set("Authorization", "Bearer "+bearerTestToken)
+	name := "Corner Cafe"
+	if _, err := handler.CreateTenant(gc, api.CreateTenantRequestObject{
+		Params: api.CreateTenantParams{IdempotencyKey: ""},
+		Body:   &api.CreateTenantRequest{DisplayName: name},
+	}); err != nil {
+		t.Fatalf("direct empty-key call returned error: %v", err)
+	}
+	assertIdentityProblem(t, recorder, http.StatusBadRequest, "invalid_request")
+	if repository.createCalls != 0 {
+		t.Fatalf("repository create calls = %d, want 0 behind the defensive rejections", repository.createCalls)
+	}
+}
+
+// TestTenancyCreateTenantUnboundCreatorIsNotFound proves the no-oracle
+// mapping (design ruling 5): an unbound creator's ErrUserNotBound is an
+// indistinguishable 404.
+func TestTenancyCreateTenantUnboundCreatorIsNotFound(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{createErr: tenancy.ErrUserNotBound}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postCreateTenant(router, `{"display_name":"Corner Cafe"}`, "key-create-1", "Bearer "+bearerTestToken)
+
+	assertIdentityProblem(t, response, http.StatusNotFound, "not_found")
+	if repository.createCalls != 1 {
+		t.Fatalf("repository create calls = %d, want 1", repository.createCalls)
+	}
+}
+
+// TestTenancyCreateTenantRejectsMissingAuthorization proves the 401 gate:
+// without credentials the create path never reaches the repository.
+func TestTenancyCreateTenantRejectsMissingAuthorization(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{createTenant: stubbedBusinessTenant(), createCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postCreateTenant(router, `{"display_name":"Corner Cafe"}`, "key-create-1", "")
+
+	assertIdentityProblem(t, response, http.StatusUnauthorized, "unauthorized")
+	if repository.createCalls != 0 {
+		t.Fatalf("repository create calls = %d, want 0 without credentials", repository.createCalls)
+	}
+}
+
+// TestTenancyCreateTenantRejectsTamperedBearer proves the 401 gate for a
+// present-but-malformed Authorization header.
+func TestTenancyCreateTenantRejectsTamperedBearer(t *testing.T) {
+	verifier := &stubVerifier{identity: verifiedTestIdentity}
+	repository := &stubTenancyRepository{createTenant: stubbedBusinessTenant(), createCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postCreateTenant(router, `{"display_name":"Corner Cafe"}`, "key-create-1", "bearer "+bearerTestToken)
+
+	assertIdentityProblem(t, response, http.StatusUnauthorized, "unauthorized")
+	if repository.createCalls != 0 {
+		t.Fatalf("repository create calls = %d, want 0 behind a malformed header", repository.createCalls)
+	}
+}
+
+// TestTenancyCreateTenantVerifierUnavailable proves the 503 mapping when
+// the identity provider is unreachable.
+func TestTenancyCreateTenantVerifierUnavailable(t *testing.T) {
+	verifier := &stubVerifier{err: identity.ErrProviderUnavailable}
+	repository := &stubTenancyRepository{createTenant: stubbedBusinessTenant(), createCreated: true}
+	router := newTenancyTestRouter(t, wiredTenancyDeps(verifier, repository))
+
+	response := postCreateTenant(router, `{"display_name":"Corner Cafe"}`, "key-create-1", "Bearer "+bearerTestToken)
+
+	assertIdentityProblem(t, response, http.StatusServiceUnavailable, "dependency_unavailable")
+	if repository.createCalls != 0 {
+		t.Fatalf("repository create calls = %d, want 0 behind an unreachable provider", repository.createCalls)
+	}
+}
+
+// TestTenancyCreateTenantUnconfiguredFailsClosed proves the fail-closed
+// 503: the create path stays registered and answers with the dependency
+// problem when no tenancy assembly is wired.
+func TestTenancyCreateTenantUnconfiguredFailsClosed(t *testing.T) {
+	router := newTenancyTestRouter(t, nil)
+
+	response := postCreateTenant(router, `{"display_name":"Corner Cafe"}`, "key-create-1", "Bearer "+bearerTestToken)
+
+	assertIdentityProblem(t, response, http.StatusServiceUnavailable, "dependency_unavailable")
 }

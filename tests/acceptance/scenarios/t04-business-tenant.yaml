@@ -1,0 +1,79 @@
+# T04 acceptance journey: an authenticated user explicitly creates a
+# business tenant and becomes its only owner — the creation is atomic
+# (tenant + 1:1 billing customer + single active owner membership), a
+# same-key replay converges onto the same tenant (201 first / 200 replay),
+# a different key provisions a second business tenant, the T03 list/select
+# endpoints see the new tenants immediately, and every rejection happens
+# before any write. Semantics map 1:1 to the implementation plan's ruling
+# 7: journey parameters live in inputs, acceptance checks in
+# assertions[].name/want. Values here are non-secret stable test
+# identifiers and endpoints only; credentials never appear in this file.
+id: t04-business-tenant
+seam: lighthouse-business-tenant
+timeout: 5m
+inputs:
+  issuer: http://casdoor:8000
+  casdoor_api_base: http://localhost:8000
+  callback_base: http://localhost:8080
+  callback_path: /internal/v1/identity/callback
+  casdoor_organization: t04-accept-org
+  casdoor_application_name: t04-acceptance-app
+  casdoor_client_id: t04-acceptance
+  casdoor_username_a: t04-create-a
+  casdoor_username_b: t04-create-b
+  display_name: t04-accept-team
+  idempotency_key_a: t04-key-a
+  idempotency_key_b: t04-key-b
+  postgres_host: localhost
+  postgres_port: 5432
+  postgres_database: platform
+  postgres_user: platform
+assertions:
+  - name: stale_state_zero_users
+    want:
+      rows: 0
+  - name: bind_user_a_status
+    want:
+      status: 201
+  - name: create_tenant_status
+    want:
+      status: 201
+  - name: creation_bundle_rows
+    want:
+      billing_rows: 1
+      owner_membership_rows: 1
+      creation_rows: 1
+  - name: replay_same_tenant_status
+    want:
+      status: 200
+  - name: replay_user_tenants_unchanged
+    want:
+      tenants: 2
+      business_tenants: 1
+  - name: second_key_new_tenant_status
+    want:
+      status: 201
+  - name: list_tenants_count
+    want:
+      tenants: 3
+  - name: select_business_context_status
+    want:
+      status: 200
+  - name: denial_missing_idempotency_key_status
+    want:
+      status: 400
+  - name: denial_empty_display_name_status
+    want:
+      status: 400
+  - name: denial_missing_authorization_status
+    want:
+      status: 401
+  - name: denial_tampered_signature_status
+    want:
+      status: 401
+  - name: unbound_creator_not_found_status
+    want:
+      status: 404
+  - name: unbound_zero_creations
+    want:
+      rows: 0

@@ -30,11 +30,22 @@ type fakeRepository struct {
 	listCalls    int
 	currentCalls int
 	saveCalls    int
+	createCalls  int
 
 	lastListVerified    identity.VerifiedIdentity
 	lastCurrentVerified identity.VerifiedIdentity
 	lastSaveVerified    identity.VerifiedIdentity
 	lastSavedTenantID   string
+	lastCreateVerified  identity.VerifiedIdentity
+	lastCreateName      string
+	lastCreateKey       string
+
+	// createTenant/createCreated are the canned creation result the fake
+	// serves; createErr (when non-nil) classifies the port rejection
+	// (e.g. ErrUserNotBound).
+	createTenant  tenancy.BusinessTenant
+	createCreated bool
+	createErr     error
 }
 
 func (f *fakeRepository) ListMembershipTenants(_ context.Context, verified identity.VerifiedIdentity) ([]tenancy.TenantSummary, error) {
@@ -64,6 +75,20 @@ func (f *fakeRepository) SaveSelection(_ context.Context, verified identity.Veri
 	return f.selection, nil
 }
 
+// CreateBusinessTenant records the creation delivery and serves the canned
+// (tenant, created) pair, keeping the service contract testable without a
+// database (T04 design ruling 6).
+func (f *fakeRepository) CreateBusinessTenant(_ context.Context, verified identity.VerifiedIdentity, displayName, idempotencyKey string) (tenancy.BusinessTenant, bool, error) {
+	f.createCalls++
+	f.lastCreateVerified = verified
+	f.lastCreateName = displayName
+	f.lastCreateKey = idempotencyKey
+	if f.createErr != nil {
+		return tenancy.BusinessTenant{}, false, f.createErr
+	}
+	return f.createTenant, f.createCreated, nil
+}
+
 // selectTestIdentity is the verified identity the service tests deliver.
 var selectTestIdentity = identity.VerifiedIdentity{
 	Issuer:  "https://issuer.tenancy.test",
@@ -75,9 +100,9 @@ const selectTestTenant = "0199cd8e-6c9f-7cc0-9d34-6a2b5f01e88a"
 // assertZeroPortCalls fails when the fake recorded any port call.
 func assertZeroPortCalls(t *testing.T, fake *fakeRepository) {
 	t.Helper()
-	if fake.listCalls != 0 || fake.currentCalls != 0 || fake.saveCalls != 0 {
-		t.Fatalf("port calls = list:%d current:%d save:%d, want all zero",
-			fake.listCalls, fake.currentCalls, fake.saveCalls)
+	if fake.listCalls != 0 || fake.currentCalls != 0 || fake.saveCalls != 0 || fake.createCalls != 0 {
+		t.Fatalf("port calls = list:%d current:%d save:%d create:%d, want all zero",
+			fake.listCalls, fake.currentCalls, fake.saveCalls, fake.createCalls)
 	}
 }
 
@@ -251,5 +276,111 @@ func TestServiceSelectPropagatesNotAnActiveMember(t *testing.T) {
 	}
 	if fake.hasSelection {
 		t.Fatal("port recorded a selection despite the rejected write")
+	}
+}
+
+// createTestTenant is the canned business tenant the fake serves; its
+// fixed timestamp pins the pass-through assertions below.
+var createTestTenant = tenancy.BusinessTenant{
+	TenantID:    "0199cd8e-6c9f-7cc0-9d34-6a2b5f01e88c",
+	DisplayName: "Corner Cafe",
+	CreatedAt:   time.Date(2026, 8, 27, 4, 5, 6, 0, time.UTC),
+}
+
+// TestServiceCreateBusinessTenantRejectsBeforeWrite proves the T04 front
+// door (design ruling 2): an unverified identity is rejected with
+// ErrUserRequired, a display name that is empty or only whitespace with
+// ErrDisplayNameRequired, and a missing idempotency key with
+// ErrIdempotencyKeyRequired — all before a single port call.
+func TestServiceCreateBusinessTenantRejectsBeforeWrite(t *testing.T) {
+	cases := []struct {
+		name           string
+		identity       identity.VerifiedIdentity
+		displayName    string
+		idempotencyKey string
+		wantErr        error
+	}{
+		{"unverified identity", identity.VerifiedIdentity{}, "Corner Cafe", "key-1", tenancy.ErrUserRequired},
+		{"empty display name", selectTestIdentity, "", "key-1", tenancy.ErrDisplayNameRequired},
+		{"whitespace display name", selectTestIdentity, " \t ", "key-1", tenancy.ErrDisplayNameRequired},
+		{"missing idempotency key", selectTestIdentity, "Corner Cafe", "", tenancy.ErrIdempotencyKeyRequired},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeRepository{}
+			service := tenancy.NewService(fake)
+
+			_, _, err := service.CreateBusinessTenant(context.Background(), tc.identity, tc.displayName, tc.idempotencyKey)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("CreateBusinessTenant error = %v, want %v", err, tc.wantErr)
+			}
+			assertZeroPortCalls(t, fake)
+		})
+	}
+}
+
+// TestServiceCreateBusinessTenantPassesThrough proves the success path:
+// the service delivers exactly one port call with the verified identity,
+// the display name, and the idempotency key, and returns the port's
+// (tenant, created=true) pair unchanged.
+func TestServiceCreateBusinessTenantPassesThrough(t *testing.T) {
+	fake := &fakeRepository{createTenant: createTestTenant, createCreated: true}
+	service := tenancy.NewService(fake)
+
+	tenant, created, err := service.CreateBusinessTenant(context.Background(), selectTestIdentity, "Corner Cafe", "key-1")
+	if err != nil {
+		t.Fatalf("CreateBusinessTenant: %v", err)
+	}
+	if !created {
+		t.Fatal("created = false, want true on the insert path")
+	}
+	if tenant != createTestTenant {
+		t.Fatalf("CreateBusinessTenant = %+v, want the port tenant %+v", tenant, createTestTenant)
+	}
+	if fake.createCalls != 1 {
+		t.Fatalf("port create calls = %d, want 1", fake.createCalls)
+	}
+	if fake.lastCreateVerified != selectTestIdentity || fake.lastCreateName != "Corner Cafe" || fake.lastCreateKey != "key-1" {
+		t.Fatalf("port saw (%+v, %q, %q), want (%+v, %q, %q)",
+			fake.lastCreateVerified, fake.lastCreateName, fake.lastCreateKey, selectTestIdentity, "Corner Cafe", "key-1")
+	}
+}
+
+// TestServiceCreateBusinessTenantReplayPassesThrough proves the replay
+// path: the port's (tenant, created=false) pair — the persistence-level
+// idempotency convergence — flows out unchanged.
+func TestServiceCreateBusinessTenantReplayPassesThrough(t *testing.T) {
+	fake := &fakeRepository{createTenant: createTestTenant, createCreated: false}
+	service := tenancy.NewService(fake)
+
+	tenant, created, err := service.CreateBusinessTenant(context.Background(), selectTestIdentity, "Corner Cafe", "key-1")
+	if err != nil {
+		t.Fatalf("CreateBusinessTenant: %v", err)
+	}
+	if created {
+		t.Fatal("created = true, want false on the replay path")
+	}
+	if tenant != createTestTenant {
+		t.Fatalf("CreateBusinessTenant = %+v, want the port tenant %+v", tenant, createTestTenant)
+	}
+	if fake.createCalls != 1 {
+		t.Fatalf("port create calls = %d, want 1 (each delivery is a real port call)", fake.createCalls)
+	}
+}
+
+// TestServiceCreateBusinessTenantPropagatesUserNotBound classifies the
+// port rejection: the repository's ErrUserNotBound (the verified identity
+// was never bound, so no platform user can become the owner) flows out
+// unchanged.
+func TestServiceCreateBusinessTenantPropagatesUserNotBound(t *testing.T) {
+	fake := &fakeRepository{createErr: tenancy.ErrUserNotBound}
+	service := tenancy.NewService(fake)
+
+	_, _, err := service.CreateBusinessTenant(context.Background(), selectTestIdentity, "Corner Cafe", "key-1")
+	if !errors.Is(err, tenancy.ErrUserNotBound) {
+		t.Fatalf("CreateBusinessTenant error = %v, want ErrUserNotBound", err)
+	}
+	if fake.createCalls != 1 {
+		t.Fatalf("port create calls = %d, want 1 (classification happens in the port)", fake.createCalls)
 	}
 }

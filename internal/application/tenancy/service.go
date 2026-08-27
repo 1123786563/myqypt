@@ -2,6 +2,7 @@ package tenancy
 
 import (
 	"context"
+	"strings"
 
 	"github.com/1123786563/myqypt/internal/application/identity"
 )
@@ -53,4 +54,25 @@ func (s *Service) Select(ctx context.Context, verified identity.VerifiedIdentity
 		return TenantContext{}, ErrTenantRequired
 	}
 	return s.repository.SaveSelection(ctx, verified, tenantID)
+}
+
+// CreateBusinessTenant delivers the explicit creation of a business
+// tenant for the verified identity's platform user. Every rejection is
+// classified before a single repository call (design ruling 2): an
+// identity that was never verified end to end with ErrUserRequired, a
+// display name that is empty or only whitespace with
+// ErrDisplayNameRequired, and a missing idempotency key with
+// ErrIdempotencyKeyRequired; the repository's ErrUserNotBound (a
+// verified identity with no platform user) flows out unchanged.
+func (s *Service) CreateBusinessTenant(ctx context.Context, verified identity.VerifiedIdentity, displayName, idempotencyKey string) (BusinessTenant, bool, error) {
+	if verified.Issuer == "" || verified.Subject == "" {
+		return BusinessTenant{}, false, ErrUserRequired
+	}
+	if strings.TrimSpace(displayName) == "" {
+		return BusinessTenant{}, false, ErrDisplayNameRequired
+	}
+	if idempotencyKey == "" {
+		return BusinessTenant{}, false, ErrIdempotencyKeyRequired
+	}
+	return s.repository.CreateBusinessTenant(ctx, verified, displayName, idempotencyKey)
 }

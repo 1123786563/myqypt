@@ -33,6 +33,14 @@ type TenantContext struct {
 	SelectedAt time.Time
 }
 
+// BusinessTenant is one explicitly created business tenant: the tenant id,
+// its display name, and when it was created (Issue #5, T04).
+type BusinessTenant struct {
+	TenantID    string
+	DisplayName string
+	CreatedAt   time.Time
+}
+
 // ErrUserRequired reports an operation delivered without a verified
 // identity (empty issuer or subject): the platform user cannot be known.
 var ErrUserRequired = errors.New("tenancy: verified user required")
@@ -49,6 +57,20 @@ var ErrNotAnActiveMember = errors.New("tenancy: not an active member of the tena
 // none was ever persisted, or the persisted one lost its active
 // membership to a revocation.
 var ErrNoTenantContext = errors.New("tenancy: no tenant context")
+
+// ErrDisplayNameRequired reports a business tenant creation delivered
+// without a usable display name (empty or only whitespace).
+var ErrDisplayNameRequired = errors.New("tenancy: display name required")
+
+// ErrIdempotencyKeyRequired reports a business tenant creation delivered
+// without the retry key header.
+var ErrIdempotencyKeyRequired = errors.New("tenancy: idempotency key required")
+
+// ErrUserNotBound reports a business tenant creation delivered by a
+// verified identity that was never bound: no platform user exists to
+// become the owner. Transport maps it onto the same 404 as any other
+// unknown principal — no existence oracle.
+var ErrUserNotBound = errors.New("tenancy: verified identity is not bound to a platform user")
 
 // Repository is the persistence port for the tenant-context domain:
 // the active-membership tenant list, the re-validated current selection,
@@ -68,4 +90,13 @@ type Repository interface {
 	// membership, rejecting non-members with ErrNotAnActiveMember and
 	// leaving zero rows behind.
 	SaveSelection(ctx context.Context, verified identity.VerifiedIdentity, tenantID string) (TenantContext, error)
+
+	// CreateBusinessTenant creates a business tenant owned by the
+	// verified identity's platform user — tenant, 1:1 billing customer,
+	// and the single active owner membership in one transaction. The
+	// idempotencyKey converges retries of the same delivery onto the
+	// same tenant: created is true exactly when this call inserted,
+	// false on the replay path that loads the existing tenant. A never
+	// bound identity is rejected with ErrUserNotBound before any write.
+	CreateBusinessTenant(ctx context.Context, verified identity.VerifiedIdentity, displayName, idempotencyKey string) (BusinessTenant, bool, error)
 }

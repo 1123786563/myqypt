@@ -33,6 +33,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TenantList"
+    post:
+      operationId: createTenant
+      summary: Create a business tenant owned by the authenticated user.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >-
+            Client-chosen retry key: redelivering the same key (with the same
+            authenticated user) converges onto the already-created tenant.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantRequest"
+      responses:
+        "201":
+          description: >-
+            The business tenant was created in this delivery: the tenant, its
+            display name, the creation timestamp, and the owner role the
+            creator holds.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedTenant"
+        "200":
+          description: >-
+            A previous delivery with the same Idempotency-Key already created
+            this tenant; the same creation facts are echoed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedTenant"
   /api/v1/tenant-context:
     get:
       operationId: getTenantContext
@@ -155,3 +195,43 @@ components:
           type: string
           format: date-time
           description: When the selection was persisted or last switched.
+    CreateTenantRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - display_name
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: The business tenant's human-readable display name.
+    CreatedTenant:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+        - kind
+        - display_name
+        - created_at
+        - role
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The created tenant's immutable identifier.
+        kind:
+          type: string
+          const: business
+          description: The tenant kind (T04 provisions business tenants only).
+        display_name:
+          type: string
+          description: The created tenant's display name, echoed back.
+        created_at:
+          type: string
+          format: date-time
+          description: When the tenant was created.
+        role:
+          type: string
+          const: owner
+          description: The membership role the creator holds in the new tenant.
