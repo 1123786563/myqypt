@@ -253,6 +253,10 @@ func (h erroringStatusHandler) PutTenantContext(context.Context, api.PutTenantCo
 	return nil, errors.New(h.failure)
 }
 
+func (h erroringStatusHandler) CreateTenant(context.Context, api.CreateTenantRequestObject) (api.CreateTenantResponseObject, error) {
+	return nil, errors.New(h.failure)
+}
+
 func TestStrictHandlerErrorWritesInternalErrorProblem(t *testing.T) {
 	useTestGinMode(t)
 	engine := gin.New()

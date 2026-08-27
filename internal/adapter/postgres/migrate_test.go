@@ -45,11 +45,13 @@ func TestMigrationRoundTrip(t *testing.T) {
 		t.Fatalf("migrate down one: %v", err)
 	}
 	// Down-one rolls back exactly the latest applied version: the
-	// tenant context selections migration (000004) is undone while the
-	// personal tenants migration (000003), the identity tables from the
-	// second migration, and the baseline marker from the first survive.
+	// business tenants migration (000005) is undone while the tenant
+	// context selections migration (000004), the personal tenants
+	// migration (000003), the identity tables from the second
+	// migration, and the baseline marker from the first survive.
 	assertSchemaHealth(t, ctx, db)
-	assertTenantContextSelectionTableGone(t, ctx, db)
+	assertBusinessTenantMigrationUndone(t, ctx, db)
+	assertTenantContextSelectionTableSurvivesDownOne(t, ctx, db)
 	assertPersonalTenantTablesSurviveDownOne(t, ctx, db)
 	assertIdentityTablesSurviveDownOne(t, ctx, db)
 }
@@ -124,10 +126,41 @@ func assertSchemaHealth(t *testing.T, ctx context.Context, db *sql.DB) {
 	}
 }
 
-// assertTenantContextSelectionTableGone asserts the tenant context
-// selections migration (000004) was rolled back: no column of the table
-// survives.
-func assertTenantContextSelectionTableGone(t *testing.T, ctx context.Context, db *sql.DB) {
+// assertBusinessTenantMigrationUndone asserts the business tenants
+// migration (000005) was rolled back: the business_tenant_creations
+// table is gone entirely and the tenants table lost the display_name
+// column the migration added.
+func assertBusinessTenantMigrationUndone(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+
+	var columns int
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_name = 'business_tenant_creations'`).Scan(&columns); err != nil {
+		t.Fatalf("query business_tenant_creations columns after down-one: %v", err)
+	}
+	if columns != 0 {
+		t.Fatalf("business_tenant_creations columns after down-one = %d, want 0", columns)
+	}
+
+	var displayName int
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_name = 'tenants' AND column_name = 'display_name'`).Scan(&displayName); err != nil {
+		t.Fatalf("query tenants display_name after down-one: %v", err)
+	}
+	if displayName != 0 {
+		t.Fatalf("tenants display_name columns after down-one = %d, want 0", displayName)
+	}
+}
+
+// assertTenantContextSelectionTableSurvivesDownOne asserts the tenant
+// context selections migration (000004) is still applied after down-one
+// rolled back only the business tenants migration (000005): the table
+// keeps its full column set.
+func assertTenantContextSelectionTableSurvivesDownOne(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 
 	var columns int
@@ -137,8 +170,8 @@ func assertTenantContextSelectionTableGone(t *testing.T, ctx context.Context, db
 		WHERE table_name = 'tenant_context_selections'`).Scan(&columns); err != nil {
 		t.Fatalf("query information_schema.columns after down-one: %v", err)
 	}
-	if columns != 0 {
-		t.Fatalf("tenant context selections columns after down-one = %d, want 0", columns)
+	if columns != 3 {
+		t.Fatalf("tenant context selections columns after down-one = %d, want 3 (the table fully present)", columns)
 	}
 }
 

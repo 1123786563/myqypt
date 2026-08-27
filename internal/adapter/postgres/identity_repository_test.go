@@ -16,7 +16,7 @@ import (
 )
 
 // openIdentityTestDB connects to TEST_DATABASE_URL, applies every up
-// migration, truncates the six business tables so every run starts from
+// migration, truncates the seven business tables so every run starts from
 // the same zero baseline, and returns a pgx pool for the repository under
 // test plus a database/sql handle for row assertions. The skip guard
 // mirrors migrate_test.go: without TEST_DATABASE_URL these stay
@@ -44,16 +44,16 @@ func openIdentityTestDB(t *testing.T) (*pgxpool.Pool, *sql.DB) {
 
 	// Reset the business tables to a clean state: on a persistent
 	// database, identity rows survive TestMigrationRoundTrip's down-one
-	// (it only rolls back 000004), so repeated runs — any -count, or a
+	// (it only rolls back 000005), so repeated runs — any -count, or a
 	// second bare run — would otherwise collide with stale rows. All
-	// six tables are listed because TRUNCATE requires every table
+	// seven tables are listed because TRUNCATE requires every table
 	// connected by foreign keys to be truncated together; uuid primary
 	// keys carry no sequences, so no RESTART IDENTITY is needed. The
-	// sixth table (tenant_context_selections) joined the list with T03
-	// for the same repeat-safety: a previous round's selection rows
-	// must not leak into the next round's baseline.
+	// seventh table (business_tenant_creations) joined the list with
+	// T04 for the same repeat-safety: a previous round's creation
+	// mapping rows must not leak into the next round's baseline.
 	if _, err := db.ExecContext(ctx,
-		`TRUNCATE TABLE tenant_context_selections, memberships, billing_customers, tenants, identity_bindings, platform_users`,
+		`TRUNCATE TABLE business_tenant_creations, tenant_context_selections, memberships, billing_customers, tenants, identity_bindings, platform_users`,
 	); err != nil {
 		db.Close()
 		t.Fatalf("truncate business tables: %v", err)

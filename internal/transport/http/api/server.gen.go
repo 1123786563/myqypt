@@ -18,8 +18,39 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Defines values for CreatedTenantKind.
+const (
+	CreatedTenantKindBusiness CreatedTenantKind = "business"
+)
+
+// Valid indicates whether the value is a known member of the CreatedTenantKind enum.
+func (e CreatedTenantKind) Valid() bool {
+	switch e {
+	case CreatedTenantKindBusiness:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreatedTenantRole.
+const (
+	CreatedTenantRoleOwner CreatedTenantRole = "owner"
+)
+
+// Valid indicates whether the value is a known member of the CreatedTenantRole enum.
+func (e CreatedTenantRole) Valid() bool {
+	switch e {
+	case CreatedTenantRoleOwner:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for SystemStatusStatus.
 const (
@@ -38,16 +69,16 @@ func (e SystemStatusStatus) Valid() bool {
 
 // Defines values for TenantSummaryKind.
 const (
-	Business TenantSummaryKind = "business"
-	Personal TenantSummaryKind = "personal"
+	TenantSummaryKindBusiness TenantSummaryKind = "business"
+	TenantSummaryKindPersonal TenantSummaryKind = "personal"
 )
 
 // Valid indicates whether the value is a known member of the TenantSummaryKind enum.
 func (e TenantSummaryKind) Valid() bool {
 	switch e {
-	case Business:
+	case TenantSummaryKindBusiness:
 		return true
-	case Personal:
+	case TenantSummaryKindPersonal:
 		return true
 	default:
 		return false
@@ -56,27 +87,57 @@ func (e TenantSummaryKind) Valid() bool {
 
 // Defines values for TenantSummaryRole.
 const (
-	Admin         TenantSummaryRole = "admin"
-	BillingMember TenantSummaryRole = "billing_member"
-	Member        TenantSummaryRole = "member"
-	Owner         TenantSummaryRole = "owner"
+	TenantSummaryRoleAdmin         TenantSummaryRole = "admin"
+	TenantSummaryRoleBillingMember TenantSummaryRole = "billing_member"
+	TenantSummaryRoleMember        TenantSummaryRole = "member"
+	TenantSummaryRoleOwner         TenantSummaryRole = "owner"
 )
 
 // Valid indicates whether the value is a known member of the TenantSummaryRole enum.
 func (e TenantSummaryRole) Valid() bool {
 	switch e {
-	case Admin:
+	case TenantSummaryRoleAdmin:
 		return true
-	case BillingMember:
+	case TenantSummaryRoleBillingMember:
 		return true
-	case Member:
+	case TenantSummaryRoleMember:
 		return true
-	case Owner:
+	case TenantSummaryRoleOwner:
 		return true
 	default:
 		return false
 	}
 }
+
+// CreateTenantRequest defines model for CreateTenantRequest.
+type CreateTenantRequest struct {
+	// DisplayName The business tenant's human-readable display name.
+	DisplayName string `json:"display_name"`
+}
+
+// CreatedTenant defines model for CreatedTenant.
+type CreatedTenant struct {
+	// CreatedAt When the tenant was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// DisplayName The created tenant's display name, echoed back.
+	DisplayName string `json:"display_name"`
+
+	// Kind The tenant kind (T04 provisions business tenants only).
+	Kind CreatedTenantKind `json:"kind"`
+
+	// Role The membership role the creator holds in the new tenant.
+	Role CreatedTenantRole `json:"role"`
+
+	// TenantId The created tenant's immutable identifier.
+	TenantId openapi_types.UUID `json:"tenant_id"`
+}
+
+// CreatedTenantKind The tenant kind (T04 provisions business tenants only).
+type CreatedTenantKind string
+
+// CreatedTenantRole The membership role the creator holds in the new tenant.
+type CreatedTenantRole string
 
 // SelectedTenantContext defines model for SelectedTenantContext.
 type SelectedTenantContext struct {
@@ -129,8 +190,17 @@ type TenantSummaryKind string
 // TenantSummaryRole The membership role the user holds in the tenant.
 type TenantSummaryRole string
 
+// CreateTenantParams defines parameters for CreateTenant.
+type CreateTenantParams struct {
+	// IdempotencyKey Client-chosen retry key: redelivering the same key (with the same authenticated user) converges onto the already-created tenant.
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // PutTenantContextJSONRequestBody defines body for PutTenantContext for application/json ContentType.
 type PutTenantContextJSONRequestBody = TenantContextSelection
+
+// CreateTenantJSONRequestBody defines body for CreateTenant for application/json ContentType.
+type CreateTenantJSONRequestBody = CreateTenantRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -146,6 +216,9 @@ type ServerInterface interface {
 	// ListTenants List the tenants the authenticated user holds an active membership in.
 	// (GET /api/v1/tenants)
 	ListTenants(c *gin.Context)
+	// CreateTenant Create a business tenant owned by the authenticated user.
+	// (POST /api/v1/tenants)
+	CreateTenant(c *gin.Context, params CreateTenantParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -209,6 +282,49 @@ func (siw *ServerInterfaceWrapper) ListTenants(c *gin.Context) {
 	siw.Handler.ListTenants(c)
 }
 
+// CreateTenant operation middleware
+func (siw *ServerInterfaceWrapper) CreateTenant(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTenantParams
+
+	headers := c.Request.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for Idempotency-Key, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter Idempotency-Key: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		siw.ErrorHandler(c, fmt.Errorf("Header parameter Idempotency-Key is required, but not found"), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateTenant(c, params)
+}
+
 // GinServerOptions provides options for the Gin server.
 type GinServerOptions struct {
 	BaseURL      string
@@ -238,6 +354,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 
 	router.GET(options.BaseURL+"/api/v1/system/status", wrapper.GetSystemStatus)
 	router.GET(options.BaseURL+"/api/v1/tenants", wrapper.ListTenants)
+	router.POST(options.BaseURL+"/api/v1/tenants", wrapper.CreateTenant)
 	router.GET(options.BaseURL+"/api/v1/tenant-context", wrapper.GetTenantContext)
 	router.PUT(options.BaseURL+"/api/v1/tenant-context", wrapper.PutTenantContext)
 }
@@ -327,6 +444,43 @@ func (response ListTenants200JSONResponse) VisitListTenantsResponse(w http.Respo
 	return err
 }
 
+type CreateTenantRequestObject struct {
+	Params CreateTenantParams
+	Body   *CreateTenantJSONRequestBody
+}
+
+type CreateTenantResponseObject interface {
+	VisitCreateTenantResponse(w http.ResponseWriter) error
+}
+
+type CreateTenant200JSONResponse CreatedTenant
+
+func (response CreateTenant200JSONResponse) VisitCreateTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenant201JSONResponse CreatedTenant
+
+func (response CreateTenant201JSONResponse) VisitCreateTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// GetSystemStatus Report whether the platform service is available.
@@ -341,6 +495,9 @@ type StrictServerInterface interface {
 	// ListTenants List the tenants the authenticated user holds an active membership in.
 	// (GET /api/v1/tenants)
 	ListTenants(ctx context.Context, request ListTenantsRequestObject) (ListTenantsResponseObject, error)
+	// CreateTenant Create a business tenant owned by the authenticated user.
+	// (POST /api/v1/tenants)
+	CreateTenant(ctx context.Context, request CreateTenantRequestObject) (CreateTenantResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx *gin.Context, request any) (any, error)
@@ -503,31 +660,70 @@ func (sh *strictHandler) ListTenants(ctx *gin.Context) {
 	}
 }
 
+// CreateTenant operation middleware
+func (sh *strictHandler) CreateTenant(ctx *gin.Context, params CreateTenantParams) {
+	var request CreateTenantRequestObject
+
+	request.Params = params
+
+	var body CreateTenantJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTenant(ctx, request.(CreateTenantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTenant")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(CreateTenantResponseObject); ok {
+		if err := validResponse.VisitCreateTenantResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"zFdtixs3EP4rg1poAj770nxzPl36Gkip2zOUEo4gS2Pv5HaljTSyswT/9zLS+u1uneC0gfqTsaR5eZ6Z",
-	"Z8YflfFN6x06jmr6UUVTYaPz11us0TDaOTrt+AfvGD+wHGhrick7Xc+CbzEwYVTTpa4jjlR79NNHFXsb",
-	"b3V+aTGaQK08VlP1V4UOuEIot8g72OgILYZIkdGCD1DryBA3xKZCO1YjtfShEWPKasYrpgbVSHHXopqq",
-	"yIHcSm1HinPMb8k+9jqv8OBiBBHDGsPVWtckFi3sQoZi48RnSmQfu9uOVMD3iQJaNX1z5Ht0kv/d/qFf",
-	"vEPDEudtFxmbW9ac4qXQ7h8Z76JEp9eaar2oBZHTnH+mD2ihP6eauINGh3sMsPQhU9DWmiXNjAcZHA+h",
-	"uhbYxOBDTF8mqi30x+CX2WRIzpFbDZpuyL1Gt+JKTZ99Ds8+0YP7ISBPivR2V08XQvqZqinHsEDJasfs",
-	"v6mP84m8pshfFHx8HPpPawzdLvgNcQXagTZMa4QGmwWGWFG7r4QUMUhSxNhka98GXKqp+mZyUIpJLxOT",
-	"Eu1tahodutx4JR8dgu7OZB4/kffO0mWp35P7NGVyAZ40tAo6y8y1fJ7D2hu9SLUO3VPJGF1qJExRB/Gr",
-	"RmqRIjmMxyEf2iH4GofdHsEql/a4QuVrG4GK7B0EZufZbxwGNVLaNuTEPdU1udXbYk/6pny5u1zyyvF3",
-	"EahpEotKAFl0TEsqfH+5yGX4ezgeU7sVFTQpEHe3UjWFsgXqgOEmiQI8DPfGGIwR2N+jA4oxoYVFlyEz",
-	"3i1plQLaPnruoA1+TRbDGH70JjXouJDsXd1N86vfW3Q3s1fQi7wPYD1GcJ4B3dIHIyOohPgCdOJKLJti",
-	"JSQnhEWyCKhNBZV2ti6Q5S6QXEs2B9Aq5lZtJXVyS/84w1la1GTg1/l8Jilx0Ib3Ddh077uW97I5hnlF",
-	"EWyfG1AsM5PcqkaIPkn4IrkhcXXQ8+JBso4pLLXBF8BBu9j6wGC8RTG0QochT71l8A1Qrw9et3Qld1bo",
-	"8iAglkpXv3V//D2bw2wn6DezV0eyPFXX42fja6lF36LTLampep5/GqlWc5WJn+iWJutnk5gn3+QwxVaY",
-	"FU/6OiP/yqqp+gX5ZERKEcbWu1iq6Pvr634AMroimG1b99RN3sUyAYpYfU7KTvxk7gb2hgejTDDcT91x",
-	"qfWdgqk/MWO9qZArHJ6yA+93+JQGuzKHtescQKf72ddEaHAhPAOVSSFIue53uxFEprqGhTb3paEHx9CT",
-	"gCLLuffI7dayCPpoLzzsi9KgqO3T8YnOqOmbU4V5c7e9O6WGU9jtng/2v13g/ejoCTj4HEuBt2mAi1ka",
-	"4OJ9wsgvve3+MxrOrDrbU4nmkHD7fymGAepE1hB6fKQPyGLTegkMtLOg+61fjuRPwNUmEOPVhly8kOwS",
-	"qfyZ6C3yUXmesjzUgufFSZa0eX/nKyJ9tBEOwHvhdnc03dDmnWRUXvGDbUk44MerzIXYS9RHpuOZGPq9",
-	"aDByko7bbrf/BAAA//8=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
