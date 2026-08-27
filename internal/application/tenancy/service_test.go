@@ -97,7 +97,8 @@ func TestServiceRejectsMissingUserIdentity(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			service := tenancy.NewService(&fakeRepository{})
+			fake := &fakeRepository{}
+			service := tenancy.NewService(fake)
 
 			if _, err := service.List(context.Background(), tc.identity); !errors.Is(err, tenancy.ErrUserRequired) {
 				t.Fatalf("List error = %v, want ErrUserRequired", err)
@@ -108,6 +109,7 @@ func TestServiceRejectsMissingUserIdentity(t *testing.T) {
 			if _, err := service.Select(context.Background(), tc.identity, selectTestTenant); !errors.Is(err, tenancy.ErrUserRequired) {
 				t.Fatalf("Select error = %v, want ErrUserRequired", err)
 			}
+			assertZeroPortCalls(t, fake)
 		})
 	}
 }
