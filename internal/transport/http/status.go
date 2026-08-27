@@ -7,12 +7,13 @@ import (
 )
 
 // StatusHandler serves the system status endpoint defined by the OpenAPI
-// contract. It has no business side effects.
+// contract. It has no business side effects. Since the contract grew the
+// tenant-context operations, the full api.StrictServerInterface is
+// implemented by the aggregate registered in NewRouter (contractAPI),
+// which embeds this handler.
 type StatusHandler struct {
 	Version string
 }
-
-var _ api.StrictServerInterface = (*StatusHandler)(nil)
 
 func (h *StatusHandler) GetSystemStatus(ctx context.Context, request api.GetSystemStatusRequestObject) (api.GetSystemStatusResponseObject, error) {
 	return api.GetSystemStatus200JSONResponse{

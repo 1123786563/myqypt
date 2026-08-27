@@ -8,6 +8,7 @@ import (
 	"github.com/1123786563/myqypt/internal/transport/http/api"
 	"github.com/1123786563/myqypt/internal/transport/http/middleware"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/gin-gonic/gin"
 	ginmiddleware "github.com/oapi-codegen/gin-middleware"
 	otelgin "go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -27,7 +28,10 @@ import (
 // explicit noop provider (the otel global is never read). Identity
 // optionally wires the internal identity callback endpoint: nil leaves the
 // route unregistered (unmatched paths get the 404 problem), while a
-// non-nil assembly with a missing port fails closed per request.
+// non-nil assembly with a missing port fails closed per request. Tenancy
+// optionally wires the tenant-context contract endpoints: their paths are
+// always registered (the contract surface stays complete), and a nil
+// assembly answers every request with the fail-closed 503 problem.
 type Dependencies struct {
 	Version        string
 	Readiness      *readiness.Service
@@ -36,7 +40,21 @@ type Dependencies struct {
 	Security       *middleware.SecurityConfig
 	TracerProvider trace.TracerProvider
 	Identity       *IdentityDependencies
+	Tenancy        *TenancyDependencies
 }
+
+// contractAPI aggregates every strict handler of the OpenAPI contract
+// into the one api.ServerInterface implementation handed to the generated
+// registration: the system status endpoint and the tenant-context
+// endpoints. The flat registration registers every contract path in one
+// group, so per-route handler assemblies are impossible — the aggregate
+// is the composition point (design ruling 3).
+type contractAPI struct {
+	*StatusHandler
+	TenancyHandler
+}
+
+var _ api.StrictServerInterface = (*contractAPI)(nil)
 
 // defaultVersion mirrors cmd/platform-api's `var version = "dev"` default so
 // an unconfigured Dependencies can never serve a contract-violating empty
@@ -103,7 +121,10 @@ func NewRouter(deps Dependencies) http.Handler {
 	contractRoutes := router.Group("/", openAPIValidatorMiddleware(swagger))
 	api.RegisterHandlersWithOptions(
 		contractRoutes,
-		api.NewStrictHandlerWithOptions(&StatusHandler{Version: version}, nil, strictServerOptions()),
+		api.NewStrictHandlerWithOptions(&contractAPI{
+			StatusHandler:  &StatusHandler{Version: version},
+			TenancyHandler: TenancyHandler{Dependencies: deps.Tenancy},
+		}, nil, strictServerOptions()),
 		api.GinServerOptions{},
 	)
 
@@ -139,9 +160,17 @@ func NewRouter(deps Dependencies) http.Handler {
 // openAPIValidatorMiddleware returns the production request-validation
 // middleware for the given OpenAPI document. Validation failures map to a
 // 400 invalid_request Problem; validator messages are never echoed because
-// they are not part of the stable public contract.
+// they are not part of the stable public contract. AuthenticationFunc is
+// pinned to kin-openapi's explicit no-op: the contract documents security
+// on the tenant-context operations, and without an authentication hook
+// kin-openapi would reject every such request with
+// ErrAuthenticationServiceMissing — the no-op keeps security declarative
+// only, with real authentication running inside the handlers.
 func openAPIValidatorMiddleware(swagger *openapi3.T) gin.HandlerFunc {
 	return ginmiddleware.OapiRequestValidatorWithOptions(swagger, &ginmiddleware.Options{
+		Options: openapi3filter.Options{
+			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
+		},
 		ErrorHandler: func(c *gin.Context, _ string, _ int) {
 			WriteProblem(c, newProblem(http.StatusBadRequest, CodeInvalidRequest))
 		},

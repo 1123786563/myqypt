@@ -18,6 +18,7 @@ import (
 	"github.com/1123786563/myqypt/internal/adapter/postgres"
 	"github.com/1123786563/myqypt/internal/application/identity"
 	"github.com/1123786563/myqypt/internal/application/readiness"
+	"github.com/1123786563/myqypt/internal/application/tenancy"
 	"github.com/1123786563/myqypt/internal/platform/cli"
 	"github.com/1123786563/myqypt/internal/platform/observability"
 	"github.com/1123786563/myqypt/internal/platform/runtime"
@@ -146,6 +147,30 @@ func identityDependencies(pool *pgxpool.Pool) *httptransport.IdentityDependencie
 	}
 }
 
+// tenancyDependencies wires the tenant-context contract endpoints. The
+// assembly semantics mirror identityDependencies (design ruling 3): both
+// PLATFORM_IDENTITY_OIDC_ISSUER and PLATFORM_IDENTITY_OIDC_AUDIENCE must
+// be set or the assembly stays nil, the verifier is lazy, and a nil pool
+// (no DATABASE_URL) leaves the repository port unwired so every endpoint
+// fails closed with 503. The two assemblies are built independently —
+// they share only the same env pair and pool, never an object — so the
+// identity callback and the tenant-context endpoints stay decoupled.
+func tenancyDependencies(pool *pgxpool.Pool) *httptransport.TenancyDependencies {
+	issuer := os.Getenv(identityOIDCIssuerEnv)
+	audience := os.Getenv(identityOIDCAudienceEnv)
+	if issuer == "" || audience == "" {
+		return nil
+	}
+	var repository tenancy.Repository
+	if pool != nil {
+		repository = postgres.NewTenancyRepository(pool)
+	}
+	return &httptransport.TenancyDependencies{
+		Verifier:   oidc.NewVerifier(issuer, audience),
+		Repository: repository,
+	}
+}
+
 func serve(ctx context.Context) error {
 	resources, err := observability.New(ctx, observabilityConfig())
 	if err != nil {
@@ -175,6 +200,7 @@ func serve(ctx context.Context) error {
 		TracerProvider: resources.TracerProvider,
 		Security:       securityConfig(),
 		Identity:       identityDependencies(databasePool),
+		Tenancy:        tenancyDependencies(databasePool),
 	}), runtime.DefaultConfig())
 	// The listener has drained; flush telemetry with a fresh context because
 	// ctx is already cancelled by the shutdown signal at this point.

@@ -45,11 +45,12 @@ func TestMigrationRoundTrip(t *testing.T) {
 		t.Fatalf("migrate down one: %v", err)
 	}
 	// Down-one rolls back exactly the latest applied version: the
-	// personal tenants migration (000003) is undone while the identity
-	// tables from the second migration and the baseline marker from the
-	// first survive.
+	// tenant context selections migration (000004) is undone while the
+	// personal tenants migration (000003), the identity tables from the
+	// second migration, and the baseline marker from the first survive.
 	assertSchemaHealth(t, ctx, db)
-	assertPersonalTenantTablesGone(t, ctx, db)
+	assertTenantContextSelectionTableGone(t, ctx, db)
+	assertPersonalTenantTablesSurviveDownOne(t, ctx, db)
 	assertIdentityTablesSurviveDownOne(t, ctx, db)
 }
 
@@ -123,10 +124,29 @@ func assertSchemaHealth(t *testing.T, ctx context.Context, db *sql.DB) {
 	}
 }
 
-// assertPersonalTenantTablesGone asserts the personal tenants migration
-// (000003) was rolled back: none of tenants, billing_customers, or
-// memberships has a column left.
-func assertPersonalTenantTablesGone(t *testing.T, ctx context.Context, db *sql.DB) {
+// assertTenantContextSelectionTableGone asserts the tenant context
+// selections migration (000004) was rolled back: no column of the table
+// survives.
+func assertTenantContextSelectionTableGone(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+
+	var columns int
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_name = 'tenant_context_selections'`).Scan(&columns); err != nil {
+		t.Fatalf("query information_schema.columns after down-one: %v", err)
+	}
+	if columns != 0 {
+		t.Fatalf("tenant context selections columns after down-one = %d, want 0", columns)
+	}
+}
+
+// assertPersonalTenantTablesSurviveDownOne asserts the personal tenants
+// migration (000003) is still applied after down-one rolled back only
+// the tenant context selections migration: the personal tenant tables
+// keep their full column set.
+func assertPersonalTenantTablesSurviveDownOne(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 
 	var columns int
@@ -134,10 +154,10 @@ func assertPersonalTenantTablesGone(t *testing.T, ctx context.Context, db *sql.D
 		SELECT count(*)
 		FROM information_schema.columns
 		WHERE table_name IN ('tenants', 'billing_customers', 'memberships')`).Scan(&columns); err != nil {
-		t.Fatalf("query information_schema.columns after down-one: %v", err)
+		t.Fatalf("query personal tenant tables columns: %v", err)
 	}
-	if columns != 0 {
-		t.Fatalf("personal tenant tables columns after down-one = %d, want 0", columns)
+	if columns != 13 {
+		t.Fatalf("personal tenant tables columns after down-one = %d, want 13 (all three tables fully present)", columns)
 	}
 }
 

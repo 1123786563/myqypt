@@ -14,9 +14,11 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for SystemStatusStatus.
@@ -34,6 +36,57 @@ func (e SystemStatusStatus) Valid() bool {
 	}
 }
 
+// Defines values for TenantSummaryKind.
+const (
+	Business TenantSummaryKind = "business"
+	Personal TenantSummaryKind = "personal"
+)
+
+// Valid indicates whether the value is a known member of the TenantSummaryKind enum.
+func (e TenantSummaryKind) Valid() bool {
+	switch e {
+	case Business:
+		return true
+	case Personal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TenantSummaryRole.
+const (
+	Admin         TenantSummaryRole = "admin"
+	BillingMember TenantSummaryRole = "billing_member"
+	Member        TenantSummaryRole = "member"
+	Owner         TenantSummaryRole = "owner"
+)
+
+// Valid indicates whether the value is a known member of the TenantSummaryRole enum.
+func (e TenantSummaryRole) Valid() bool {
+	switch e {
+	case Admin:
+		return true
+	case BillingMember:
+		return true
+	case Member:
+		return true
+	case Owner:
+		return true
+	default:
+		return false
+	}
+}
+
+// SelectedTenantContext defines model for SelectedTenantContext.
+type SelectedTenantContext struct {
+	// SelectedAt When the selection was persisted or last switched.
+	SelectedAt time.Time `json:"selected_at"`
+
+	// TenantId The persisted, server-validated selected tenant.
+	TenantId openapi_types.UUID `json:"tenant_id"`
+}
+
 // SystemStatus defines model for SystemStatus.
 type SystemStatus struct {
 	// Status Fixed availability marker for the platform service.
@@ -46,11 +99,53 @@ type SystemStatus struct {
 // SystemStatusStatus Fixed availability marker for the platform service.
 type SystemStatusStatus string
 
+// TenantContextSelection defines model for TenantContextSelection.
+type TenantContextSelection struct {
+	// TenantId The tenant being selected.
+	TenantId openapi_types.UUID `json:"tenant_id"`
+}
+
+// TenantList defines model for TenantList.
+type TenantList struct {
+	// Tenants Every tenant with an active membership for the user.
+	Tenants []TenantSummary `json:"tenants"`
+}
+
+// TenantSummary defines model for TenantSummary.
+type TenantSummary struct {
+	// Kind The tenant kind (migration 000003 vocabulary).
+	Kind TenantSummaryKind `json:"kind"`
+
+	// Role The membership role the user holds in the tenant.
+	Role TenantSummaryRole `json:"role"`
+
+	// TenantId The tenant's immutable identifier.
+	TenantId openapi_types.UUID `json:"tenant_id"`
+}
+
+// TenantSummaryKind The tenant kind (migration 000003 vocabulary).
+type TenantSummaryKind string
+
+// TenantSummaryRole The membership role the user holds in the tenant.
+type TenantSummaryRole string
+
+// PutTenantContextJSONRequestBody defines body for PutTenantContext for application/json ContentType.
+type PutTenantContextJSONRequestBody = TenantContextSelection
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetSystemStatus Report whether the platform service is available.
 	// (GET /api/v1/system/status)
 	GetSystemStatus(c *gin.Context)
+	// GetTenantContext Return the server-validated current tenant context selection.
+	// (GET /api/v1/tenant-context)
+	GetTenantContext(c *gin.Context)
+	// PutTenantContext Select or switch the current tenant context.
+	// (PUT /api/v1/tenant-context)
+	PutTenantContext(c *gin.Context)
+	// ListTenants List the tenants the authenticated user holds an active membership in.
+	// (GET /api/v1/tenants)
+	ListTenants(c *gin.Context)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -73,6 +168,45 @@ func (siw *ServerInterfaceWrapper) GetSystemStatus(c *gin.Context) {
 	}
 
 	siw.Handler.GetSystemStatus(c)
+}
+
+// GetTenantContext operation middleware
+func (siw *ServerInterfaceWrapper) GetTenantContext(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetTenantContext(c)
+}
+
+// PutTenantContext operation middleware
+func (siw *ServerInterfaceWrapper) PutTenantContext(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.PutTenantContext(c)
+}
+
+// ListTenants operation middleware
+func (siw *ServerInterfaceWrapper) ListTenants(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListTenants(c)
 }
 
 // GinServerOptions provides options for the Gin server.
@@ -103,6 +237,9 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	}
 
 	router.GET(options.BaseURL+"/api/v1/system/status", wrapper.GetSystemStatus)
+	router.GET(options.BaseURL+"/api/v1/tenants", wrapper.ListTenants)
+	router.GET(options.BaseURL+"/api/v1/tenant-context", wrapper.GetTenantContext)
+	router.PUT(options.BaseURL+"/api/v1/tenant-context", wrapper.PutTenantContext)
 }
 
 type GetSystemStatusRequestObject struct {
@@ -126,11 +263,84 @@ func (response GetSystemStatus200JSONResponse) VisitGetSystemStatusResponse(w ht
 	return err
 }
 
+type GetTenantContextRequestObject struct {
+}
+
+type GetTenantContextResponseObject interface {
+	VisitGetTenantContextResponse(w http.ResponseWriter) error
+}
+
+type GetTenantContext200JSONResponse SelectedTenantContext
+
+func (response GetTenantContext200JSONResponse) VisitGetTenantContextResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutTenantContextRequestObject struct {
+	Body *PutTenantContextJSONRequestBody
+}
+
+type PutTenantContextResponseObject interface {
+	VisitPutTenantContextResponse(w http.ResponseWriter) error
+}
+
+type PutTenantContext200JSONResponse SelectedTenantContext
+
+func (response PutTenantContext200JSONResponse) VisitPutTenantContextResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantsRequestObject struct {
+}
+
+type ListTenantsResponseObject interface {
+	VisitListTenantsResponse(w http.ResponseWriter) error
+}
+
+type ListTenants200JSONResponse TenantList
+
+func (response ListTenants200JSONResponse) VisitListTenantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// GetSystemStatus Report whether the platform service is available.
 	// (GET /api/v1/system/status)
 	GetSystemStatus(ctx context.Context, request GetSystemStatusRequestObject) (GetSystemStatusResponseObject, error)
+	// GetTenantContext Return the server-validated current tenant context selection.
+	// (GET /api/v1/tenant-context)
+	GetTenantContext(ctx context.Context, request GetTenantContextRequestObject) (GetTenantContextResponseObject, error)
+	// PutTenantContext Select or switch the current tenant context.
+	// (PUT /api/v1/tenant-context)
+	PutTenantContext(ctx context.Context, request PutTenantContextRequestObject) (PutTenantContextResponseObject, error)
+	// ListTenants List the tenants the authenticated user holds an active membership in.
+	// (GET /api/v1/tenants)
+	ListTenants(ctx context.Context, request ListTenantsRequestObject) (ListTenantsResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx *gin.Context, request any) (any, error)
@@ -214,19 +424,110 @@ func (sh *strictHandler) GetSystemStatus(ctx *gin.Context) {
 	}
 }
 
+// GetTenantContext operation middleware
+func (sh *strictHandler) GetTenantContext(ctx *gin.Context) {
+	var request GetTenantContextRequestObject
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTenantContext(ctx, request.(GetTenantContextRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTenantContext")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(GetTenantContextResponseObject); ok {
+		if err := validResponse.VisitGetTenantContextResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutTenantContext operation middleware
+func (sh *strictHandler) PutTenantContext(ctx *gin.Context) {
+	var request PutTenantContextRequestObject
+
+	var body PutTenantContextJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.PutTenantContext(ctx, request.(PutTenantContextRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutTenantContext")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(PutTenantContextResponseObject); ok {
+		if err := validResponse.VisitPutTenantContextResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTenants operation middleware
+func (sh *strictHandler) ListTenants(ctx *gin.Context) {
+	var request ListTenantsRequestObject
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenants(ctx, request.(ListTenantsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenants")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(ListTenantsResponseObject); ok {
+		if err := validResponse.VisitListTenantsResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"aDByko7bbrf/BAAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
