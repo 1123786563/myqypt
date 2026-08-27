@@ -45,10 +45,12 @@ func TestMigrationRoundTrip(t *testing.T) {
 		t.Fatalf("migrate down one: %v", err)
 	}
 	// Down-one rolls back exactly the latest applied version: the
-	// identity bindings migration is undone while the baseline marker
-	// from the first migration survives.
+	// personal tenants migration (000003) is undone while the identity
+	// tables from the second migration and the baseline marker from the
+	// first survive.
 	assertSchemaHealth(t, ctx, db)
-	assertIdentityTablesGone(t, ctx, db)
+	assertPersonalTenantTablesGone(t, ctx, db)
+	assertIdentityTablesSurviveDownOne(t, ctx, db)
 }
 
 type schemaColumn struct {
@@ -121,10 +123,29 @@ func assertSchemaHealth(t *testing.T, ctx context.Context, db *sql.DB) {
 	}
 }
 
-// assertIdentityTablesGone asserts the identity bindings migration was
-// rolled back: neither identity_bindings nor platform_users has a column
-// left.
-func assertIdentityTablesGone(t *testing.T, ctx context.Context, db *sql.DB) {
+// assertPersonalTenantTablesGone asserts the personal tenants migration
+// (000003) was rolled back: none of tenants, billing_customers, or
+// memberships has a column left.
+func assertPersonalTenantTablesGone(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+
+	var columns int
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_name IN ('tenants', 'billing_customers', 'memberships')`).Scan(&columns); err != nil {
+		t.Fatalf("query information_schema.columns after down-one: %v", err)
+	}
+	if columns != 0 {
+		t.Fatalf("personal tenant tables columns after down-one = %d, want 0", columns)
+	}
+}
+
+// assertIdentityTablesSurviveDownOne asserts the identity bindings
+// migration (000002) is still applied after down-one rolled back only the
+// personal tenants migration: both identity tables keep their full
+// column set.
+func assertIdentityTablesSurviveDownOne(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 
 	var columns int
@@ -132,10 +153,10 @@ func assertIdentityTablesGone(t *testing.T, ctx context.Context, db *sql.DB) {
 		SELECT count(*)
 		FROM information_schema.columns
 		WHERE table_name IN ('identity_bindings', 'platform_users')`).Scan(&columns); err != nil {
-		t.Fatalf("query information_schema.columns after down-one: %v", err)
+		t.Fatalf("query identity tables columns after down-one: %v", err)
 	}
-	if columns != 0 {
-		t.Fatalf("identity tables columns after down-one = %d, want 0", columns)
+	if columns != 6 {
+		t.Fatalf("identity tables columns after down-one = %d, want 6 (both tables fully present)", columns)
 	}
 }
 

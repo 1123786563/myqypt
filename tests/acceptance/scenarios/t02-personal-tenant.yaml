@@ -1,0 +1,64 @@
+# T02 acceptance journey: the first identity bind provisions the new
+# user's complete personal-tenant bundle — one personal tenant, its 1:1
+# billing customer, and the active owner membership — atomically, and
+# replays or denied deliveries never duplicate it. Semantics map 1:1 to
+# the aggregator plan's ruling 4: journey parameters live in inputs,
+# acceptance checks in assertions[].name/want. Values here are non-secret
+# stable test identifiers and endpoints only; credentials never appear in
+# this file.
+id: t02-personal-tenant
+seam: lighthouse-personal-tenant
+timeout: 5m
+inputs:
+  issuer: http://casdoor:8000
+  casdoor_api_base: http://localhost:8000
+  callback_base: http://localhost:8080
+  callback_path: /internal/v1/identity/callback
+  casdoor_organization: t02-accept-org
+  casdoor_application_name: t02-acceptance-app
+  casdoor_client_id: t02-acceptance
+  casdoor_username: t02-accept
+  replay_deliveries: 1
+  postgres_host: localhost
+  postgres_port: 5432
+  postgres_database: platform
+  postgres_user: platform
+assertions:
+  - name: first_bind_status
+    want:
+      status: 201
+  - name: first_bind_body_user_id_uuid
+    want:
+      canonical_uuid: true
+  - name: personal_tenant_count
+    want:
+      rows: 1
+  - name: billing_customer_count
+    want:
+      rows: 1
+  - name: owner_membership_count
+    want:
+      rows: 1
+  - name: tenant_billing_one_to_one
+    want:
+      one_to_one: true
+  - name: replay_status
+    want:
+      status: 200
+  - name: replay_body_identical
+    want:
+      identical: true
+  - name: replay_tenant_bundle_counts
+    want:
+      tenants: 1
+      billing_customers: 1
+      memberships: 1
+  - name: denial_missing_authorization_status
+    want:
+      status: 401
+  - name: denial_tampered_signature_status
+    want:
+      status: 401
+  - name: denial_row_delta
+    want:
+      rows: 0
