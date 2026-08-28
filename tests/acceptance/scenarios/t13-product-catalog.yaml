@@ -1,0 +1,65 @@
+# T13 acceptance journey (Issue #14): Owner 查看内部策展 Product 及其
+# 可用状态. The journey drives the real service with the concrete
+# in-process curated-catalog port and a recording evidence sink: the
+# three input-shaped rejections (missing tenant, missing idempotency
+# key, missing product) happen before the outbound port with zero
+# evidence; the available curated product is viewed with its
+# availability carried across the seam; the unavailable curated product
+# is equally viewable with its true unavailable status (the status is
+# visible, not filtered); a product outside the internally curated set
+# is denied with the classified error and zero effects; a replay
+# converges onto the same access entry as a duplicate with no second
+# effect; an injected catalog failure leaves no partial state and
+# converges on retry; and every recorded evidence row stays
+# content-minimized — the journey's own assembled fake sensitive
+# material never appears in any evidence triple. Values here are
+# non-secret stable test identifiers only; no tokens, subjects, or
+# credentials ever appear in this file.
+id: t13-product-catalog
+seam: lighthouse-product-catalog
+timeout: 5m
+inputs:
+  tenant_id: 0199cd8e-6c9f-7cc0-9d34-6a2b5f01e88e
+  idempotency_key: t13-acceptance
+assertions:
+  - name: reject_missing_tenant
+    want:
+      error_class: err_tenant_required
+      before_port: true
+      evidence_rows: 0
+  - name: reject_missing_idempotency_key
+    want:
+      error_class: err_idempotency_key_required
+      before_port: true
+      evidence_rows: 0
+  - name: reject_missing_product
+    want:
+      error_class: err_product_required
+      before_port: true
+      evidence_rows: 0
+  - name: curated_product_availability_visible
+    want:
+      outcome: accepted
+      availability: available
+      evidence_rows: 1
+  - name: unavailable_product_status_visible
+    want:
+      outcome: accepted
+      availability: unavailable
+  - name: unknown_product_denied
+    want:
+      error_class: err_product_not_curated
+      evidence_rows: 0
+  - name: replay_converges_single_effect
+    want:
+      same_entry: true
+      outcome: duplicate
+  - name: port_failure_no_partial_then_retry_converges
+    want:
+      failure_class: err_catalog_unavailable
+      evidence_after_failure: 0
+      retry_outcome: accepted
+  - name: evidence_content_minimized
+    want:
+      fields: key_entry_outcome_only
+      sensitive_material_hits: 0
