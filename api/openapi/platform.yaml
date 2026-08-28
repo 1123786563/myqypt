@@ -182,6 +182,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ActivatedMembership"
+  /api/v1/tenants/{tenantId}/capabilities:
+    get:
+      operationId: listTenantCapabilities
+      summary: >-
+        List the Platform Role capabilities of the authenticated user's
+        active membership in a tenant (T06).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          description: The tenant whose membership capabilities are read.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: >-
+            The actor's active-membership role in the tenant and that
+            role's sorted capability list — the CONTEXT.md Platform Role
+            vocabulary, served deterministically so identical requests
+            produce byte-identical bodies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantCapabilities"
 components:
   securitySchemes:
     bearerAuth:
@@ -377,3 +404,33 @@ components:
           type: string
           const: active
           description: The activated state the acceptance transitioned into.
+    TenantCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+        - role
+        - capabilities
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant the active membership is held in.
+        role:
+          type: string
+          enum:
+            - owner
+            - admin
+            - billing_member
+            - member
+          description: >-
+            The active-membership Platform Role the capabilities derive
+            from (the full four-role memberships CHECK vocabulary).
+        capabilities:
+          type: array
+          items:
+            type: string
+          description: >-
+            The role's capability names, sorted ascending (the closed
+            CONTEXT.md Platform Role vocabulary; identical requests
+            produce byte-identical bodies).

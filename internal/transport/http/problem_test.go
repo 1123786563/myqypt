@@ -265,6 +265,10 @@ func (h erroringStatusHandler) AcceptMembershipInvitation(context.Context, api.A
 	return nil, errors.New(h.failure)
 }
 
+func (h erroringStatusHandler) ListTenantCapabilities(context.Context, api.ListTenantCapabilitiesRequestObject) (api.ListTenantCapabilitiesResponseObject, error) {
+	return nil, errors.New(h.failure)
+}
+
 func TestStrictHandlerErrorWritesInternalErrorProblem(t *testing.T) {
 	useTestGinMode(t)
 	engine := gin.New()

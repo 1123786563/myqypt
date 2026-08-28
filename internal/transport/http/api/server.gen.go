@@ -118,6 +118,30 @@ func (e SystemStatusStatus) Valid() bool {
 	}
 }
 
+// Defines values for TenantCapabilitiesRole.
+const (
+	TenantCapabilitiesRoleAdmin         TenantCapabilitiesRole = "admin"
+	TenantCapabilitiesRoleBillingMember TenantCapabilitiesRole = "billing_member"
+	TenantCapabilitiesRoleMember        TenantCapabilitiesRole = "member"
+	TenantCapabilitiesRoleOwner         TenantCapabilitiesRole = "owner"
+)
+
+// Valid indicates whether the value is a known member of the TenantCapabilitiesRole enum.
+func (e TenantCapabilitiesRole) Valid() bool {
+	switch e {
+	case TenantCapabilitiesRoleAdmin:
+		return true
+	case TenantCapabilitiesRoleBillingMember:
+		return true
+	case TenantCapabilitiesRoleMember:
+		return true
+	case TenantCapabilitiesRoleOwner:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TenantSummaryKind.
 const (
 	TenantSummaryKindBusiness TenantSummaryKind = "business"
@@ -256,6 +280,21 @@ type SystemStatus struct {
 // SystemStatusStatus Fixed availability marker for the platform service.
 type SystemStatusStatus string
 
+// TenantCapabilities defines model for TenantCapabilities.
+type TenantCapabilities struct {
+	// Capabilities The role's capability names, sorted ascending (the closed CONTEXT.md Platform Role vocabulary; identical requests produce byte-identical bodies).
+	Capabilities []string `json:"capabilities"`
+
+	// Role The active-membership Platform Role the capabilities derive from (the full four-role memberships CHECK vocabulary).
+	Role TenantCapabilitiesRole `json:"role"`
+
+	// TenantId The tenant the active membership is held in.
+	TenantId openapi_types.UUID `json:"tenant_id"`
+}
+
+// TenantCapabilitiesRole The active-membership Platform Role the capabilities derive from (the full four-role memberships CHECK vocabulary).
+type TenantCapabilitiesRole string
+
 // TenantContextSelection defines model for TenantContextSelection.
 type TenantContextSelection struct {
 	// TenantId The tenant being selected.
@@ -324,6 +363,9 @@ type ServerInterface interface {
 	// CreateTenant Create a business tenant owned by the authenticated user.
 	// (POST /api/v1/tenants)
 	CreateTenant(c *gin.Context, params CreateTenantParams)
+	// ListTenantCapabilities List the Platform Role capabilities of the authenticated user's active membership in a tenant (T06).
+	// (GET /api/v1/tenants/{tenantId}/capabilities)
+	ListTenantCapabilities(c *gin.Context, tenantId openapi_types.UUID)
 	// CreateMembershipInvitation Invite a bound user into a tenant as a non-owner member; the membership activates only after the invitee accepts (T05).
 	// (POST /api/v1/tenants/{tenantId}/membership-invitations)
 	CreateMembershipInvitation(c *gin.Context, tenantId openapi_types.UUID, params CreateMembershipInvitationParams)
@@ -434,6 +476,31 @@ func (siw *ServerInterfaceWrapper) CreateTenant(c *gin.Context) {
 	}
 
 	siw.Handler.CreateTenant(c, params)
+}
+
+// ListTenantCapabilities operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantCapabilities(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListTenantCapabilities(c, tenantId)
 }
 
 // CreateMembershipInvitation operation middleware
@@ -547,6 +614,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.PUT(options.BaseURL+"/api/v1/tenant-context", wrapper.PutTenantContext)
 	router.POST(options.BaseURL+"/api/v1/tenants/:tenantId/membership-invitations", wrapper.CreateMembershipInvitation)
 	router.POST(options.BaseURL+"/api/v1/tenants/:tenantId/membership-invitations/acceptance", wrapper.AcceptMembershipInvitation)
+	router.GET(options.BaseURL+"/api/v1/tenants/:tenantId/capabilities", wrapper.ListTenantCapabilities)
 }
 
 type GetSystemStatusRequestObject struct {
@@ -671,6 +739,28 @@ func (response CreateTenant201JSONResponse) VisitCreateTenantResponse(w http.Res
 	return err
 }
 
+type ListTenantCapabilitiesRequestObject struct {
+	TenantId openapi_types.UUID `json:"tenantId"`
+}
+
+type ListTenantCapabilitiesResponseObject interface {
+	VisitListTenantCapabilitiesResponse(w http.ResponseWriter) error
+}
+
+type ListTenantCapabilities200JSONResponse TenantCapabilities
+
+func (response ListTenantCapabilities200JSONResponse) VisitListTenantCapabilitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateMembershipInvitationRequestObject struct {
 	TenantId openapi_types.UUID `json:"tenantId"`
 	Params   CreateMembershipInvitationParams
@@ -748,6 +838,9 @@ type StrictServerInterface interface {
 	// CreateTenant Create a business tenant owned by the authenticated user.
 	// (POST /api/v1/tenants)
 	CreateTenant(ctx context.Context, request CreateTenantRequestObject) (CreateTenantResponseObject, error)
+	// ListTenantCapabilities List the Platform Role capabilities of the authenticated user's active membership in a tenant (T06).
+	// (GET /api/v1/tenants/{tenantId}/capabilities)
+	ListTenantCapabilities(ctx context.Context, request ListTenantCapabilitiesRequestObject) (ListTenantCapabilitiesResponseObject, error)
 	// CreateMembershipInvitation Invite a bound user into a tenant as a non-owner member; the membership activates only after the invitee accepts (T05).
 	// (POST /api/v1/tenants/{tenantId}/membership-invitations)
 	CreateMembershipInvitation(ctx context.Context, request CreateMembershipInvitationRequestObject) (CreateMembershipInvitationResponseObject, error)
@@ -949,6 +1042,32 @@ func (sh *strictHandler) CreateTenant(ctx *gin.Context, params CreateTenantParam
 	}
 }
 
+// ListTenantCapabilities operation middleware
+func (sh *strictHandler) ListTenantCapabilities(ctx *gin.Context, tenantId openapi_types.UUID) {
+	var request ListTenantCapabilitiesRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenantCapabilities(ctx, request.(ListTenantCapabilitiesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenantCapabilities")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(ListTenantCapabilitiesResponseObject); ok {
+		if err := validResponse.VisitListTenantCapabilitiesResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // CreateMembershipInvitation operation middleware
 func (sh *strictHandler) CreateMembershipInvitation(ctx *gin.Context, tenantId openapi_types.UUID, params CreateMembershipInvitationParams) {
 	var request CreateMembershipInvitationRequestObject
@@ -1014,44 +1133,48 @@ func (sh *strictHandler) AcceptMembershipInvitation(ctx *gin.Context, tenantId o
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"/w==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

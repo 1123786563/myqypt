@@ -1,0 +1,177 @@
+# T06 acceptance journey: the four Platform Roles gain their own visible,
+# non-escalating operations (AC1 observed black-box). User A creates the
+# business tenant (owner), invites B (admin), C (billing_member), and D
+# (member); each accepts; then every role reads its capability set at the
+# new contract endpoint — four exact, pairwise-distinct CONTEXT.md sets.
+# The refusal paths prove non-escalation: a member and a billing_member
+# inviting E answer 404 with zero rows, E while merely invited and F while
+# bound-but-never-invited read capabilities as 404, an unknown tenant id
+# is an indistinguishable 404, and missing or tampered credentials are
+# 401s. Admin B then invites E (201, membership.manage end to end), E
+# accepts, reads the member set, and a replay answers the byte-identical
+# body. Semantics map 1:1 to the implementation plan's rulings 1-10;
+# journey parameters live in inputs, acceptance checks in
+# assertions[].name/want. Values here are non-secret stable test
+# identifiers, endpoints, and capability names only; no tokens, subjects,
+# or credentials ever appear in this file.
+id: t06-platform-roles
+seam: lighthouse-platform-roles
+timeout: 5m
+inputs:
+  issuer: http://casdoor:8000
+  casdoor_api_base: http://localhost:18000
+  callback_base: http://localhost:18080
+  callback_path: /internal/v1/identity/callback
+  casdoor_organization: t06-accept-org
+  casdoor_application_name: t06-acceptance-app
+  casdoor_client_id: t06-acceptance
+  casdoor_username_a: t06-roles-a
+  casdoor_username_b: t06-roles-b
+  casdoor_username_c: t06-roles-c
+  casdoor_username_d: t06-roles-d
+  casdoor_username_e: t06-roles-e
+  casdoor_username_f: t06-roles-f
+  display_name: t06-accept-team
+  idempotency_key_tenant: t06-key-tenant
+  idempotency_key_admin: t06-key-admin
+  idempotency_key_billing: t06-key-billing
+  idempotency_key_member: t06-key-member
+  idempotency_key_denial_member: t06-key-denial-member
+  idempotency_key_denial_billing: t06-key-denial-billing
+  idempotency_key_final: t06-key-final
+  role_admin: admin
+  role_billing_member: billing_member
+  role_member: member
+  unknown_tenant: 0199cd8e-6c9f-7cc0-9d34-6a2b5f01e906
+  postgres_host: localhost
+  postgres_port: "25432"
+  postgres_database: platform
+  postgres_user: platform
+assertions:
+  - name: stale_state_zero_users
+    want:
+      rows: 0
+  - name: bind_user_a_status
+    want:
+      status: 201
+  - name: create_tenant_status
+    want:
+      status: 201
+  - name: bind_user_b_status
+    want:
+      status: 201
+  - name: bind_user_c_status
+    want:
+      status: 201
+  - name: bind_user_d_status
+    want:
+      status: 201
+  - name: bind_user_e_status
+    want:
+      status: 201
+  - name: bind_user_f_status
+    want:
+      status: 201
+  - name: invite_admin_status
+    want:
+      status: 201
+  - name: accept_admin_status
+    want:
+      status: 200
+  - name: invite_billing_member_status
+    want:
+      status: 201
+  - name: accept_billing_member_status
+    want:
+      status: 200
+  - name: invite_member_status
+    want:
+      status: 201
+  - name: accept_member_status
+    want:
+      status: 200
+  - name: capabilities_owner_status
+    want:
+      status: 200
+      role: owner
+      capabilities:
+        - billing.manage
+        - bills.read
+        - configuration.manage
+        - membership.manage
+        - ownership.manage
+        - payments.manage
+        - product.use
+        - product_access.manage
+        - purchases.manage
+        - subscriptions.read
+        - usage.read
+  - name: capabilities_admin_status
+    want:
+      status: 200
+      role: admin
+      capabilities:
+        - configuration.manage
+        - membership.manage
+        - product_access.manage
+        - purchases.manage
+  - name: capabilities_billing_member_status
+    want:
+      status: 200
+      role: billing_member
+      capabilities:
+        - bills.read
+        - payments.manage
+        - subscriptions.read
+        - usage.read
+  - name: capabilities_member_status
+    want:
+      status: 200
+      role: member
+      capabilities:
+        - product.use
+  - name: capability_sets_pairwise_distinct
+    want:
+      distinct: true
+  - name: member_invites_denied
+    want:
+      status: 404
+  - name: member_invite_zero_rows
+    want:
+      rows: 0
+  - name: billing_member_invites_denied
+    want:
+      status: 404
+  - name: billing_member_invite_zero_rows
+    want:
+      rows: 0
+  - name: admin_invites_status
+    want:
+      status: 201
+  - name: invited_denied_capabilities
+    want:
+      status: 404
+  - name: never_invited_denied_capabilities
+    want:
+      status: 404
+  - name: unknown_tenant_denied_capabilities
+    want:
+      status: 404
+  - name: denial_missing_authorization_status
+    want:
+      status: 401
+  - name: denial_tampered_signature_status
+    want:
+      status: 401
+  - name: accept_final_member_status
+    want:
+      status: 200
+  - name: final_member_capabilities_status
+    want:
+      status: 200
+      role: member
+      capabilities:
+        - product.use
+  - name: capabilities_replay_body_identical
+    want:
+      identical: true

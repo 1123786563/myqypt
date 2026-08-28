@@ -359,6 +359,108 @@ func TestConcurrentSaveSelectionKeepsConsistentFinalState(t *testing.T) {
 	}
 }
 
+// insertInvitedMembership injects the fixture membership no Stage-1 API
+// can produce on this path: a user holding role in tenant with the
+// pending status invited (T05 vocabulary; T06 must treat it as not yet
+// an active membership).
+func (f *tenancyFixture) insertInvitedMembership(t *testing.T, ctx context.Context, tenantID, userID, role string) {
+	t.Helper()
+	if _, err := f.db.ExecContext(ctx, `
+		INSERT INTO memberships (id, tenant_id, user_id, role, status)
+		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, 'invited')`,
+		tenantID, userID, role); err != nil {
+		t.Fatalf("insert fixture invited membership: %v", err)
+	}
+}
+
+// TestActiveMembershipRoleResolvesEachRole proves the T06 role
+// resolution: for every role of the four-role memberships CHECK the
+// single SELECT answers exactly that role — the provisioned owner
+// membership plus one injected active membership each for admin,
+// billing_member, and member, spread over distinct (tenant, user)
+// pairs.
+func TestActiveMembershipRoleResolvesEachRole(t *testing.T) {
+	fixture, repo := newTenancyFixture(t)
+	ctx := context.Background()
+
+	userC := fixture.provisionUser(t, ctx, "https://issuer-tenancy-c.test", "subject-tenancy-c")
+	fixture.insertActiveMembership(t, ctx, fixture.userA.tenantID, fixture.userB.userID, "admin")
+	fixture.insertActiveMembership(t, ctx, fixture.userB.tenantID, fixture.userA.userID, "billing_member")
+	fixture.insertActiveMembership(t, ctx, fixture.userA.tenantID, userC.userID, "member")
+
+	cases := []struct {
+		name     string
+		verified identity.VerifiedIdentity
+		tenantID string
+		want     string
+	}{
+		{"owner", fixture.userA.verified, fixture.userA.tenantID, "owner"},
+		{"admin", fixture.userB.verified, fixture.userA.tenantID, "admin"},
+		{"billing_member", fixture.userA.verified, fixture.userB.tenantID, "billing_member"},
+		{"member", userC.verified, fixture.userA.tenantID, "member"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			role, err := repo.ActiveMembershipRole(ctx, tc.verified, tc.tenantID)
+			if err != nil {
+				t.Fatalf("ActiveMembershipRole: %v", err)
+			}
+			if role != tc.want {
+				t.Fatalf("ActiveMembershipRole = %q, want %q", role, tc.want)
+			}
+		})
+	}
+}
+
+// TestActiveMembershipRoleClassifiesRejections proves the two rejection
+// classes of the T06 role resolution and their no-oracle collapse: a
+// bound principal with no active membership in the tenant — merely
+// invited, revoked, a never-member stranger, or an unknown tenant — all
+// answer the identical ErrNotAnActiveMember sentinel, while a
+// never-bound identity answers ErrUserNotBound.
+func TestActiveMembershipRoleClassifiesRejections(t *testing.T) {
+	fixture, repo := newTenancyFixture(t)
+	ctx := context.Background()
+
+	// userA holds only an invited (pending) row in userB's tenant; userB
+	// holds an active member row in userA's tenant; the provisioned userC
+	// holds no row in either of them.
+	fixture.insertInvitedMembership(t, ctx, fixture.userB.tenantID, fixture.userA.userID, "admin")
+	fixture.insertActiveMembership(t, ctx, fixture.userA.tenantID, fixture.userB.userID, "member")
+	userC := fixture.provisionUser(t, ctx, "https://issuer-tenancy-c.test", "subject-tenancy-c")
+
+	cases := []struct {
+		name     string
+		verified identity.VerifiedIdentity
+		tenantID string
+		wantErr  error
+	}{
+		{"invited not accepted", fixture.userA.verified, fixture.userB.tenantID, tenancy.ErrNotAnActiveMember},
+		{"never a member", userC.verified, fixture.userA.tenantID, tenancy.ErrNotAnActiveMember},
+		{"unknown tenant", fixture.userA.verified, "0199cd8e-6c9f-7cc0-9d34-6a2b5f01e8ff", tenancy.ErrNotAnActiveMember},
+		{"never-bound identity", identity.VerifiedIdentity{Issuer: "https://issuer-tenancy-a.test", Subject: "subject-never-bound"}, fixture.userA.tenantID, tenancy.ErrUserNotBound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			role, err := repo.ActiveMembershipRole(ctx, tc.verified, tc.tenantID)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("ActiveMembershipRole error = %v, want %v", err, tc.wantErr)
+			}
+			if role != "" {
+				t.Fatalf("ActiveMembershipRole role = %q, want empty on rejection", role)
+			}
+		})
+	}
+
+	// Revocation collapses onto the same sentinel: userB's active member
+	// row in userA's tenant flips to revoked and the resolution answers
+	// ErrNotAnActiveMember.
+	fixture.revokeMembership(t, ctx, fixture.userA.tenantID, fixture.userB.userID)
+	if _, err := repo.ActiveMembershipRole(ctx, fixture.userB.verified, fixture.userA.tenantID); !errors.Is(err, tenancy.ErrNotAnActiveMember) {
+		t.Fatalf("ActiveMembershipRole after revocation = %v, want ErrNotAnActiveMember", err)
+	}
+}
+
 // TestSaveSelectionFailureLeavesZeroResidue proves the transaction
 // atomicity with a fault injected mid-transaction: a BEFORE INSERT
 // trigger on tenant_context_selections (the last statement of the save
