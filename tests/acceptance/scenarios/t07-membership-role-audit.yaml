@@ -1,0 +1,59 @@
+# T07 acceptance journey (Issue #8): 邀请、激活、拒绝、角色变更和移除
+# 产生不可变 Audit Event. The journey drives the real service with the
+# concrete in-process audit ledger and a recording evidence sink: the
+# three input-shaped rejections (missing tenant, missing idempotency
+# key, unknown action) happen before the outbound port with zero
+# evidence; each of the five lifecycle actions appends exactly one
+# distinct event; a replay converges onto the same event id as a
+# duplicate; a divergent payload under the same key converges onto the
+# original event without overwriting it or consuming a phantom append;
+# an injected audit-store failure leaves no partial state and converges
+# on retry; and every recorded evidence row stays content-minimized —
+# the journey's own assembled fake sensitive material never appears in
+# any evidence triple. Values here are non-secret stable test
+# identifiers only; no tokens, subjects, or credentials ever appear in
+# this file.
+id: t07-membership-role-audit
+seam: lighthouse-membership-role-audit
+timeout: 5m
+inputs:
+  tenant_id: 0199cd8e-6c9f-7cc0-9d34-6a2b5f01e88e
+  membership_id: membership-1
+  idempotency_key: t07-acceptance
+assertions:
+  - name: reject_missing_tenant
+    want:
+      error_class: err_tenant_required
+      before_port: true
+      evidence_rows: 0
+  - name: reject_missing_idempotency_key
+    want:
+      error_class: err_idempotency_key_required
+      before_port: true
+      evidence_rows: 0
+  - name: reject_unknown_action
+    want:
+      error_class: err_action_invalid
+      before_port: true
+      evidence_rows: 0
+  - name: five_actions_each_one_immutable_event
+    want:
+      outcomes: accepted_x5
+      distinct_event_ids: 5
+  - name: replay_converges_single_event
+    want:
+      same_event: true
+      outcome: duplicate
+  - name: immutability_no_overwrite
+    want:
+      divergent_replay: duplicate_original_id
+      phantom_appends: 0
+  - name: port_failure_no_partial_then_retry_converges
+    want:
+      failure_class: err_audit_unavailable
+      evidence_after_failure: 0
+      retry_outcome: accepted
+  - name: evidence_content_minimized
+    want:
+      fields: key_event_outcome_only
+      sensitive_material_hits: 0
