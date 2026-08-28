@@ -165,4 +165,16 @@ type Repository interface {
 	// and replays converge onto the same activation without a second
 	// transition.
 	AcceptInvitation(ctx context.Context, verified identity.VerifiedIdentity, tenantID string) (ActivatedMembership, error)
+
+	// ActiveMembershipRole resolves the role of the verified identity's
+	// platform user's active membership in tenantID (Issue #7, T06): the
+	// actor's Platform Role, the key the capability matrix is derived
+	// from. A principal with no active membership in the tenant — never
+	// a member, revoked, invited-not-accepted, a stranger, or an unknown
+	// tenant — classifies as ErrNotAnActiveMember (no existence
+	// oracle); a never-bound identity classifies as ErrUserNotBound.
+	// The persisted role is one of the four-role memberships CHECK
+	// vocabulary; anything else is a contract breach the service
+	// classifies as ErrRoleNotSupported (design ruling 5).
+	ActiveMembershipRole(ctx context.Context, verified identity.VerifiedIdentity, tenantID string) (string, error)
 }

@@ -69,6 +69,16 @@ type fakeRepository struct {
 
 	lastAcceptVerified identity.VerifiedIdentity
 	lastAcceptTenant   string
+
+	// roleResult/roleErr are the canned active-membership role the
+	// capabilities path serves and its classified port rejection
+	// (ErrNotAnActiveMember, ErrUserNotBound).
+	roleResult string
+	roleErr    error
+	roleCalls  int
+
+	lastRoleVerified identity.VerifiedIdentity
+	lastRoleTenant   string
 }
 
 func (f *fakeRepository) ListMembershipTenants(_ context.Context, verified identity.VerifiedIdentity) ([]tenancy.TenantSummary, error) {
@@ -139,6 +149,19 @@ func (f *fakeRepository) AcceptInvitation(_ context.Context, verified identity.V
 	return f.acceptMembership, nil
 }
 
+// ActiveMembershipRole records the role-resolution delivery and serves the
+// canned role (or its classified port rejection), keeping the T06
+// capabilities contract testable without a database.
+func (f *fakeRepository) ActiveMembershipRole(_ context.Context, verified identity.VerifiedIdentity, tenantID string) (string, error) {
+	f.roleCalls++
+	f.lastRoleVerified = verified
+	f.lastRoleTenant = tenantID
+	if f.roleErr != nil {
+		return "", f.roleErr
+	}
+	return f.roleResult, nil
+}
+
 // selectTestIdentity is the verified identity the service tests deliver.
 var selectTestIdentity = identity.VerifiedIdentity{
 	Issuer:  "https://issuer.tenancy.test",
@@ -151,9 +174,9 @@ const selectTestTenant = "0199cd8e-6c9f-7cc0-9d34-6a2b5f01e88a"
 func assertZeroPortCalls(t *testing.T, fake *fakeRepository) {
 	t.Helper()
 	if fake.listCalls != 0 || fake.currentCalls != 0 || fake.saveCalls != 0 || fake.createCalls != 0 ||
-		fake.inviteCalls != 0 || fake.acceptCalls != 0 {
-		t.Fatalf("port calls = list:%d current:%d save:%d create:%d invite:%d accept:%d, want all zero",
-			fake.listCalls, fake.currentCalls, fake.saveCalls, fake.createCalls, fake.inviteCalls, fake.acceptCalls)
+		fake.inviteCalls != 0 || fake.acceptCalls != 0 || fake.roleCalls != 0 {
+		t.Fatalf("port calls = list:%d current:%d save:%d create:%d invite:%d accept:%d role:%d, want all zero",
+			fake.listCalls, fake.currentCalls, fake.saveCalls, fake.createCalls, fake.inviteCalls, fake.acceptCalls, fake.roleCalls)
 	}
 }
 

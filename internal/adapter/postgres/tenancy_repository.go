@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -51,6 +52,39 @@ func (r *TenancyRepository) boundUserID(ctx context.Context, q tenancyQueryer, v
 		return "", fmt.Errorf("postgres: resolve identity binding: %w", err)
 	}
 	return userID, nil
+}
+
+// ActiveMembershipRole resolves the role of the verified identity's
+// platform user's active membership in tenantID (Issue #7, T06) with one
+// parameterized SELECT: the platform user is resolved through
+// identity_bindings by (issuer, subject) — the ADR 0024 identity key —
+// and the LEFT JOIN keeps the two rejection classes apart. A never-bound
+// identity answers ErrUserNotBound (no binding row at all); a bound
+// principal with no active membership in the tenant — never a member,
+// invited but not accepted, revoked, a stranger, or an unknown tenant —
+// answers ErrNotAnActiveMember, all indistinguishable from each other
+// (no existence oracle). memberships' UNIQUE (tenant_id, user_id) keeps
+// the join single-row by construction.
+func (r *TenancyRepository) ActiveMembershipRole(ctx context.Context, verified identity.VerifiedIdentity, tenantID string) (string, error) {
+	var role sql.NullString
+	err := r.pool.QueryRow(ctx, `
+		SELECT m.role
+		FROM identity_bindings b
+		LEFT JOIN memberships m
+		       ON m.tenant_id = $3::uuid
+		      AND m.user_id = b.platform_user_id
+		      AND m.status = 'active'
+		WHERE b.identity_provider = $1 AND b.subject = $2`,
+		verified.Issuer, verified.Subject, tenantID).Scan(&role)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return "", tenancy.ErrUserNotBound
+	case err != nil:
+		return "", fmt.Errorf("postgres: resolve active membership role: %w", err)
+	case !role.Valid:
+		return "", tenancy.ErrNotAnActiveMember
+	}
+	return role.String, nil
 }
 
 // ListMembershipTenants returns the tenants the verified identity's

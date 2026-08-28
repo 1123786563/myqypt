@@ -50,6 +50,12 @@ type stubTenancyRepository struct {
 	lastAcceptIdent  identity.VerifiedIdentity
 	lastAcceptTenant string
 
+	roleResult     string
+	roleErr        error
+	roleCalls      int
+	lastRoleIdent  identity.VerifiedIdentity
+	lastRoleTenant string
+
 	listCalls    int
 	currentCalls int
 	saveCalls    int
@@ -117,6 +123,19 @@ func (r *stubTenancyRepository) AcceptInvitation(_ context.Context, verified ide
 		return tenancy.ActivatedMembership{}, r.acceptErr
 	}
 	return r.acceptMembership, nil
+}
+
+// ActiveMembershipRole records the role-resolution delivery and serves the
+// canned role (or its classified port rejection) for the T06 capabilities
+// endpoint tests.
+func (r *stubTenancyRepository) ActiveMembershipRole(_ context.Context, verified identity.VerifiedIdentity, tenantID string) (string, error) {
+	r.roleCalls++
+	r.lastRoleIdent = verified
+	r.lastRoleTenant = tenantID
+	if r.roleErr != nil {
+		return "", r.roleErr
+	}
+	return r.roleResult, nil
 }
 
 // tenancyFixedSelectedAt is the deterministic selection timestamp the

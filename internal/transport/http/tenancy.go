@@ -341,3 +341,40 @@ func (h TenancyHandler) AcceptMembershipInvitation(ctx context.Context, request 
 		Status:   api.ActivatedMembershipStatus(activated.Status),
 	}), nil
 }
+
+// ListTenantCapabilities serves GET
+// /api/v1/tenants/{tenantId}/capabilities: the authenticated user's
+// active-membership Platform Role in the tenant and that role's sorted
+// capability list (T06, AC1: each role gets its own visible operations).
+// Identical requests produce byte-identical bodies (design ruling 6).
+// Every principal without an active membership in the tenant — never a
+// member, invited but not accepted, revoked, a stranger, or an unknown
+// tenant — is an indistinguishable 404 (no existence oracle); a persisted
+// role outside the matrix is a 400 (defensive classification, design
+// ruling 5); input-shaped rejections are 400s and credential failures
+// 401s.
+func (h TenancyHandler) ListTenantCapabilities(ctx context.Context, request api.ListTenantCapabilitiesRequestObject) (api.ListTenantCapabilitiesResponseObject, error) {
+	gc, err := tenancyGinContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	verified, ok := h.authenticateTenantUser(gc)
+	if !ok {
+		return nil, nil
+	}
+	capabilities, err := tenancy.NewService(h.Dependencies.Repository).
+		Capabilities(gc.Request.Context(), verified, request.TenantId.String())
+	if err != nil {
+		tenancyServiceProblem(gc, err)
+		return nil, nil
+	}
+	tenantID, err := tenancyUUID(capabilities.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	return api.ListTenantCapabilities200JSONResponse(api.TenantCapabilities{
+		TenantId:     tenantID,
+		Role:         api.TenantCapabilitiesRole(capabilities.Role),
+		Capabilities: capabilities.Capabilities,
+	}), nil
+}
